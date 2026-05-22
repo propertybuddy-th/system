@@ -656,17 +656,18 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
 
 // ============ EMBEDDED CONFIG (optional) ============
 // Team lead can edit this object and skip the setup wizard for users
-const EMBEDDED_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
-  authDomain: "propertybuddy-ed25d.firebaseapp.com",
-  projectId: "propertybuddy-ed25d",
-  storageBucket: "propertybuddy-ed25d.firebasestorage.app",
-  messagingSenderId: "100054480079",
-  appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
-};
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
 
 // ============ CONFIG ============
-  
 const CREDENTIALS = {
   admin: { user: 'admin', pass: 'welovepropertybuddy', role: 'admin' },
   budder: { user: 'budder', pass: 'wearepropertybudder', role: 'budder' }
@@ -755,6 +756,20 @@ const ChartRegistry = {
   destroyAll() { Object.keys(this.charts).forEach(k => this.destroy(k)); }
 };
 
+// ============ DEBOUNCED RENDER (for snapshot listeners) ============
+// Snapshots fire on EVERY data change (own writes + others). Without debounce,
+// rapid changes destroy the DOM mid-click and break user interactions.
+let _renderDebounceTimer = null;
+function debouncedRender() {
+  if (_renderDebounceTimer) clearTimeout(_renderDebounceTimer);
+  _renderDebounceTimer = setTimeout(() => {
+    _renderDebounceTimer = null;
+    if (State.authed && State.profileName && (State.view === 'admin' || State.view === 'budder')) {
+      render();
+    }
+  }, 350);
+}
+
 /* =========================================================
    STORAGE LAYER — supports both Firebase (cloud) and Local (browser-only) modes
    ========================================================= */
@@ -798,7 +813,7 @@ const Store = {
           State.masters = { admins: [], budders: [], universities: [], counters: {} };
         }
         State.online = true;
-        if (State.authed && State.profileName && (State.view === 'admin' || State.view === 'budder')) render();
+        debouncedRender();
       }, err => {
         console.error('Masters listener error:', err);
         State.online = false;
@@ -813,7 +828,7 @@ const Store = {
         State.tickets = snap.docs.map(d => d.data())
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         State.online = true;
-        if (State.authed && State.profileName && (State.view === 'admin' || State.view === 'budder')) render();
+        debouncedRender();
       }, err => {
         console.error('Tickets listener error:', err);
         State.online = false;
@@ -1715,13 +1730,18 @@ function renderBudderRanking(stats) {
 
 // ----- Render Charts (called after DOM is in place) -----
 function renderReportsCharts() {
-  if (typeof Chart === 'undefined') return;
-  const from = new Date(State.reportFrom).getTime();
-  const to = new Date(State.reportTo).getTime() + 86400000;
-  const inRange = State.tickets.filter(t => {
-    const c = new Date(t.createdAt).getTime();
-    return c >= from && c <= to;
-  });
+  if (typeof Chart === 'undefined') {
+    console.warn('Chart.js not loaded yet');
+    toast('Chart.js ยังโหลดไม่เสร็จ — รอแล้วลองอีกที', 'error');
+    return;
+  }
+  try {
+    const from = new Date(State.reportFrom).getTime();
+    const to = new Date(State.reportTo).getTime() + 86400000;
+    const inRange = State.tickets.filter(t => {
+      const c = new Date(t.createdAt).getTime();
+      return c >= from && c <= to;
+    });
 
   Chart.defaults.font.family = "'Prompt', sans-serif";
   Chart.defaults.color = '#6B7280';
@@ -1970,6 +1990,10 @@ function renderReportsCharts() {
     } else {
       budderCtx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">👥</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
     }
+  }
+  } catch (e) {
+    console.error('renderReportsCharts error:', e);
+    toast('วาดกราฟไม่สำเร็จ: ' + e.message, 'error');
   }
 }
 
@@ -2485,41 +2509,63 @@ function exportExcel() {
    RENDER & EVENTS
    ========================================================= */
 async function render() {
-  const app = $('#app');
-  ChartRegistry.destroyAll();
+  try {
+    const app = $('#app');
+    ChartRegistry.destroyAll();
 
-  if (!State.firebaseReady) { app.innerHTML = viewFirebaseSetup(); attachFirebaseSetupEvents(); return; }
-  if (!State.authed) { app.innerHTML = viewLogin(); attachLoginEvents(); return; }
-  if (!State.profileName) { app.innerHTML = viewProfileSelect(); attachProfileEvents(); return; }
+    if (!State.firebaseReady) { app.innerHTML = viewFirebaseSetup(); attachFirebaseSetupEvents(); return; }
+    if (!State.authed) { app.innerHTML = viewLogin(); attachLoginEvents(); return; }
+    if (!State.profileName) { app.innerHTML = viewProfileSelect(); attachProfileEvents(); return; }
 
-  if (!State.timerInterval) {
-    State.timerInterval = setInterval(() => {
-      if (State.view === 'admin' && State.subView === 'tickets') renderInner(viewAdminTickets());
-      else if (State.view === 'budder' && (State.subView === 'available' || State.subView === 'mine')) {
-        const inner = State.subView === 'available' ? viewBudderAvailable() : viewBudderMine();
-        renderInner(inner);
-      }
-    }, 30000);
-  }
+    if (!State.timerInterval) {
+      State.timerInterval = setInterval(() => {
+        if (State.view === 'admin' && State.subView === 'tickets') renderInner(viewAdminTickets());
+        else if (State.view === 'budder' && (State.subView === 'available' || State.subView === 'mine')) {
+          const inner = State.subView === 'available' ? viewBudderAvailable() : viewBudderMine();
+          renderInner(inner);
+        }
+      }, 30000);
+    }
 
-  let inner = '';
-  if (State.role === 'admin') {
-    if (State.subView === 'tickets') inner = viewAdminTickets();
-    else if (State.subView === 'create') inner = viewAdminCreate();
-    else if (State.subView === 'masters') inner = viewAdminMasters();
-    else if (State.subView === 'reports') inner = viewAdminReports();
-  } else {
-    if (State.subView === 'available') inner = viewBudderAvailable();
-    else if (State.subView === 'mine') inner = viewBudderMine();
-    else if (State.subView === 'closed') inner = viewBudderClosed();
-  }
-  app.innerHTML = viewAppShell(inner);
-  attachShellEvents();
-  attachInnerEvents();
+    let inner = '';
+    if (State.role === 'admin') {
+      if (State.subView === 'tickets') inner = viewAdminTickets();
+      else if (State.subView === 'create') inner = viewAdminCreate();
+      else if (State.subView === 'masters') inner = viewAdminMasters();
+      else if (State.subView === 'reports') inner = viewAdminReports();
+    } else {
+      if (State.subView === 'available') inner = viewBudderAvailable();
+      else if (State.subView === 'mine') inner = viewBudderMine();
+      else if (State.subView === 'closed') inner = viewBudderClosed();
+    }
+    app.innerHTML = viewAppShell(inner);
+    attachShellEvents();
+    attachInnerEvents();
 
-  // Render charts after DOM is set
-  if (State.role === 'admin' && State.subView === 'reports') {
-    setTimeout(renderReportsCharts, 50);
+    // Render charts after DOM is set
+    if (State.role === 'admin' && State.subView === 'reports') {
+      setTimeout(() => {
+        try { renderReportsCharts(); }
+        catch (e) {
+          console.error('Chart render error:', e);
+          toast('วาดกราฟไม่สำเร็จ: ' + e.message, 'error');
+        }
+      }, 50);
+    }
+  } catch (e) {
+    console.error('Render error:', e);
+    toast('เกิดข้อผิดพลาด: ' + e.message, 'error');
+    // Show error fallback so user isn't stuck
+    const app = $('#app');
+    if (app && State.authed) {
+      app.innerHTML = `<div class="login-wrap"><div class="login-card">
+        <div class="login-logo">⚠️</div>
+        <h1 class="login-title">เกิดข้อผิดพลาด</h1>
+        <p class="login-subtitle">${escapeHtml(e.message)}</p>
+        <button class="btn btn-primary btn-block mt-3" onclick="location.reload()">โหลดใหม่</button>
+        <button class="btn btn-ghost btn-block mt-2" onclick="logout()">ออกจากระบบ</button>
+      </div></div>`;
+    }
   }
 }
 
@@ -2665,7 +2711,8 @@ function attachInnerEvents() {
 
   $$('.subtab').forEach(b => b.addEventListener('click', () => {
     State.subSubView = b.dataset.sub;
-    render();
+    // Use renderInner instead of full render() — keeps shell + handlers stable
+    renderInner(viewAdminMasters());
   }));
 
   const rf = $('#rep-from'); if (rf) rf.addEventListener('change', (e) => { State.reportFrom = e.target.value; renderInner(viewAdminReports()); });
