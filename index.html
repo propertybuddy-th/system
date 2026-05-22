@@ -655,30 +655,19 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
    ========================================================= */
 
 // ============ EMBEDDED CONFIG (optional) ============
-
 // Team lead can edit this object and skip the setup wizard for users
-
-const EMBEDDED_FIREBASE_CONFIG = {
-
-  apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
-
-  authDomain: "propertybuddy-ed25d.firebaseapp.com",
-
-  projectId: "propertybuddy-ed25d",
-
-  storageBucket: "propertybuddy-ed25d.firebasestorage.app",
-
-  messagingSenderId: "100054480079",
-
-  appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
-
-};
-
-
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
 
 // ============ CONFIG ============
-
-
 const CREDENTIALS = {
   admin: { user: 'admin', pass: 'welovepropertybuddy', role: 'admin' },
   budder: { user: 'budder', pass: 'wearepropertybudder', role: 'budder' }
@@ -1557,6 +1546,12 @@ function viewAdminReports() {
     const c = new Date(t.createdAt).getTime();
     return c >= from && c <= to;
   });
+
+  // Ticket counts (ใช้ใน KPI summary card)
+  const totalOpened = inRange.length;
+  const closed = inRange.filter(t => t.status === 'closed');
+  const cancelled = inRange.filter(t => t.status === 'cancelled');
+  const open = inRange.filter(t => t.status !== 'closed' && t.status !== 'cancelled');
 
   // เวลาเฉลี่ยทีม (Team averages)
   const adminOpenTimes = inRange.filter(t => t.customerLastContactAt && t.createdAt)
