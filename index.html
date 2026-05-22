@@ -656,14 +656,16 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
 
 // ============ EMBEDDED CONFIG (optional) ============
 // Team lead can edit this object and skip the setup wizard for users
-const EMBEDDED_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
-  authDomain: "propertybuddy-ed25d.firebaseapp.com",
-  projectId: "propertybuddy-ed25d",
-  storageBucket: "propertybuddy-ed25d.firebasestorage.app",
-  messagingSenderId: "100054480079",
-  appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
-};
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
 
 // ============ CONFIG ============
 const CREDENTIALS = {
@@ -698,6 +700,20 @@ const STATUS_COLORS = {
 const PRIORITY = { normal: 'ปกติ', medium: 'ปานกลาง', high: 'ด่วน' };
 
 const AVAILABLE_STATUSES = ['new', 'reassigned', 'on_hold'];
+
+// Helper: ticket อยู่ใน available pool ของ Budder หรือไม่
+function isInAvailablePool(t) {
+  if (t.status === 'new' || t.status === 'reassigned') return true;
+  // on_hold ที่ไม่มี Budder ก็ยังอยู่ใน pool
+  if (t.status === 'on_hold' && !t.budderName) return true;
+  return false;
+}
+
+// Helper: ticket assigned ให้ Budder คนนี้หรือไม่ (รวม on_hold ที่มีชื่อ)
+function isAssignedTo(t, name) {
+  if (!name || t.budderName !== name) return false;
+  return t.status === 'accepted' || t.status === 'on_hold';
+}
 
 const LS_KEY_FIREBASE = 'pb_firebase_config';
 const LS_KEY_PROFILE = 'pb_profile';
@@ -741,19 +757,19 @@ const ChartRegistry = {
 };
 
 /* =========================================================
-   FIREBASE STORAGE LAYER
+   STORAGE LAYER — supports both Firebase (cloud) and Local (browser-only) modes
    ========================================================= */
 const Store = {
   db: null,
   unsubTickets: null,
   unsubMasters: null,
 
+  // -------- INIT --------
   async init(config) {
     try {
       if (firebase.apps.length === 0) firebase.initializeApp(config);
       else { firebase.app().delete().catch(() => {}); firebase.initializeApp(config); }
       this.db = firebase.firestore();
-      // Test by reading masters (will succeed even if empty)
       await this.db.collection('config').doc('masters').get();
       State.firebaseReady = true;
       State.online = true;
@@ -766,6 +782,7 @@ const Store = {
     }
   },
 
+  // -------- SUBSCRIBE --------
   subscribeMasters() {
     if (this.unsubMasters) this.unsubMasters();
     this.unsubMasters = this.db.collection('config').doc('masters')
@@ -804,6 +821,7 @@ const Store = {
       });
   },
 
+  // -------- SAVE / LOAD --------
   async saveMasters() {
     try {
       await this.db.collection('config').doc('masters').set(State.masters);
@@ -952,21 +970,37 @@ function slaLevel(elapsed, target) {
 }
 
 function ongoingTime(t, now = Date.now()) {
-  if (AVAILABLE_STATUSES.includes(t.status)) {
-    return { phase: 'waiting_accept', elapsed: now - new Date(t.createdAt).getTime(), target: SLA.acceptWithin };
+  if (t.status === 'closed' || t.status === 'cancelled') return null;
+  const held = t.totalHeldMs || 0;
+
+  // ถ้ามี Budder และ acceptedAt = อยู่ใน exec phase
+  if (t.acceptedAt && t.budderName) {
+    if (t.status === 'on_hold' && t.holdStartedAt) {
+      // หยุดจับเวลา — แสดงเวลาที่ frozen ณ จุดเริ่มพัก
+      const elapsedFrozen = new Date(t.holdStartedAt) - new Date(t.acceptedAt) - held;
+      return { phase: 'paused_close', elapsed: Math.max(0, elapsedFrozen), target: SLA.closeWithin, paused: true };
+    }
+    // status === 'accepted' — เดินปกติ หักเวลาพักรวมออก
+    const elapsed = now - new Date(t.acceptedAt).getTime() - held;
+    return { phase: 'waiting_close', elapsed: Math.max(0, elapsed), target: SLA.closeWithin };
   }
-  if (t.status === 'accepted') {
-    return { phase: 'waiting_close', elapsed: now - new Date(t.acceptedAt).getTime(), target: SLA.closeWithin };
+
+  // ไม่มี Budder = waiting accept
+  if (t.status === 'on_hold' && t.holdStartedAt) {
+    const elapsedFrozen = new Date(t.holdStartedAt) - new Date(t.createdAt);
+    return { phase: 'paused_accept', elapsed: Math.max(0, elapsedFrozen), target: SLA.acceptWithin, paused: true };
   }
-  return null;
+  return { phase: 'waiting_accept', elapsed: now - new Date(t.createdAt).getTime(), target: SLA.acceptWithin };
 }
 
 function ticketMetrics(t) {
   const m = {};
+  const held = t.totalHeldMs || 0;
   if (t.customerLastContactAt && t.createdAt) m.adminOpenMs = new Date(t.createdAt) - new Date(t.customerLastContactAt);
   if (t.createdAt && t.acceptedAt) m.waitAcceptMs = new Date(t.acceptedAt) - new Date(t.createdAt);
-  if (t.acceptedAt && t.closedAt) m.execCloseMs = new Date(t.closedAt) - new Date(t.acceptedAt);
-  if (t.createdAt && t.closedAt) m.totalMs = new Date(t.closedAt) - new Date(t.createdAt);
+  if (t.acceptedAt && t.closedAt) m.execCloseMs = Math.max(0, new Date(t.closedAt) - new Date(t.acceptedAt) - held);
+  if (t.createdAt && t.closedAt) m.totalMs = Math.max(0, new Date(t.closedAt) - new Date(t.createdAt) - held);
+  m.heldMs = held;
   return m;
 }
 
@@ -1007,9 +1041,10 @@ function viewFirebaseSetup() {
       <div class="login-card wide">
         <div class="login-logo">P</div>
         <h1 class="login-title">ตั้งค่า Cloud Backend</h1>
-        <p class="login-subtitle">เชื่อมต่อกับ Firebase Firestore (real-time sync ทุกเครื่อง)</p>
+        <p class="login-subtitle">เชื่อมต่อกับ Firebase Firestore — ทีมทั้ง 8 คน sync real-time</p>
+
         <div class="setup-steps">
-          <strong>วิธีตั้งค่า (ใช้เวลา ~5 นาที):</strong>
+          <strong>วิธีตั้งค่า Firebase (ใช้เวลา ~5 นาที):</strong>
           <ol>
             <li>ไป <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a> ล็อกอินด้วย Google</li>
             <li>กด <strong>Add project</strong> ตั้งชื่อ เช่น "propertybuddy"</li>
@@ -1019,6 +1054,7 @@ function viewFirebaseSetup() {
             <li>วาง config ในช่องด้านล่าง แล้วกด "เชื่อมต่อ"</li>
           </ol>
         </div>
+
         <form class="login-form" id="firebase-form">
           <div class="field">
             <label class="field-label">Firebase Config (วาง JSON หรือ JS object)</label>
@@ -1034,9 +1070,10 @@ function viewFirebaseSetup() {
           <div id="firebase-err"></div>
           <button type="submit" class="btn btn-primary btn-block btn-lg">เชื่อมต่อ Firebase</button>
         </form>
+
         <div class="login-hint">
-          ⚠️ <strong>Production Note:</strong> Test mode allows reads/writes ทั้งหมด<br>
-          สำหรับใช้งานจริงแนะนำเพิ่ม Firestore Security Rules ภายหลัง
+          💡 หรือถ้าทีมลีดตั้งค่าให้แล้ว — เปิดไฟล์ HTML ค้นหา <code>EMBEDDED_FIREBASE_CONFIG</code><br>
+          แล้วใส่ config ตรงนั้น ลูกทีมจะข้าม setup wizard ได้
         </div>
       </div>
     </div>
@@ -1064,7 +1101,7 @@ function viewLogin() {
         </form>
         <div class="login-hint">
           Admin / Certified Budder<br>
-          ${State.online ? '<span style="color: var(--status-closed);">🟢 Cloud connected</span>' : '<span style="color: var(--sla-warning);">🟡 Offline</span>'}
+          ${State.online ? '<span style="color: var(--status-closed);">☁️ Cloud connected</span>' : '<span style="color: var(--sla-warning);">🟡 Syncing...</span>'}
           · <a href="#" onclick="resetFirebaseConfig(); return false;">เปลี่ยน Firebase config</a>
         </div>
       </div>
@@ -1131,10 +1168,10 @@ function viewAppShell(inner) {
   const tabsHtml = tabs.map(t => {
     let count = '';
     if (t.key === 'available') {
-      const n = State.tickets.filter(x => AVAILABLE_STATUSES.includes(x.status)).length;
+      const n = State.tickets.filter(isInAvailablePool).length;
       if (n > 0) count = `<span class="badge-count">${n}</span>`;
     } else if (t.key === 'mine') {
-      const n = State.tickets.filter(x => x.status === 'accepted' && x.budderName === State.profileName).length;
+      const n = State.tickets.filter(x => isAssignedTo(x, State.profileName)).length;
       if (n > 0) count = `<span class="badge-count">${n}</span>`;
     } else if (t.key === 'tickets') {
       const n = State.tickets.filter(x => x.status !== 'closed' && x.status !== 'cancelled').length;
@@ -1312,7 +1349,8 @@ function viewAdminCreate(editingId = null) {
             </div>
             <div class="field">
               <label class="field-label">เวลาที่ Buddy ติดต่อล่าสุด <span class="req">*</span></label>
-              <input class="input" type="datetime-local" id="customerLastContact" value="${lastTimeVal}" required>
+              <input class="input" type="datetime-local" id="customerLastContact" value="${lastTimeVal}" required ${editing ? 'disabled' : ''}>
+              ${editing ? '<div class="field-hint">🔒 ล็อกแล้ว — แก้ไม่ได้หลังเปิดใบงาน (ใช้คำนวณ SLA)</div>' : ''}
             </div>
           </div>
 
@@ -1392,10 +1430,16 @@ function viewAdminMasters() {
   else if (sub === 'budders') body = renderListEditor('budders', 'รายชื่อ Certified Budder', State.masters.budders);
   else if (sub === 'universities') body = renderUniversityEditor();
   return `
-    <div class="subtabs">
-      <button class="subtab ${sub === 'admins' ? 'active' : ''}" data-sub="admins">Admins (${State.masters.admins.length})</button>
-      <button class="subtab ${sub === 'budders' ? 'active' : ''}" data-sub="budders">Certified Budders (${State.masters.budders.length})</button>
-      <button class="subtab ${sub === 'universities' ? 'active' : ''}" data-sub="universities">มหาวิทยาลัย (${State.masters.universities.length})</button>
+    <div class="row-between mb-3">
+      <div class="subtabs">
+        <button class="subtab ${sub === 'admins' ? 'active' : ''}" data-sub="admins">Admins (${State.masters.admins.length})</button>
+        <button class="subtab ${sub === 'budders' ? 'active' : ''}" data-sub="budders">Certified Budders (${State.masters.budders.length})</button>
+        <button class="subtab ${sub === 'universities' ? 'active' : ''}" data-sub="universities">มหาวิทยาลัย (${State.masters.universities.length})</button>
+      </div>
+      <div class="row">
+        <button class="btn btn-secondary btn-sm" onclick="exportBackup()">💾 Export Backup</button>
+        <button class="btn btn-secondary btn-sm" onclick="openImportDialog()">📥 Import</button>
+      </div>
     </div>
     ${body}`;
 }
@@ -1489,22 +1533,26 @@ function viewAdminReports() {
     return c >= from && c <= to;
   });
 
-  // KPIs
-  const totalOpened = inRange.length;
-  const closed = inRange.filter(t => t.status === 'closed');
-  const cancelled = inRange.filter(t => t.status === 'cancelled');
-  const open = inRange.filter(t => t.status !== 'closed' && t.status !== 'cancelled');
+  // เวลาเฉลี่ยทีม (Team averages)
+  const adminOpenTimes = inRange.filter(t => t.customerLastContactAt && t.createdAt)
+    .map(t => new Date(t.createdAt) - new Date(t.customerLastContactAt));
+  const budderAcceptTimes = inRange.filter(t => t.acceptedAt)
+    .map(t => new Date(t.acceptedAt) - new Date(t.createdAt));
+  const budderCloseTimes = inRange.filter(t => t.acceptedAt && t.closedAt)
+    .map(t => Math.max(0, new Date(t.closedAt) - new Date(t.acceptedAt) - (t.totalHeldMs || 0)));
 
-  const slaOpen = inRange.filter(t => t.customerLastContactAt && t.createdAt);
-  const slaOpenHit = slaOpen.filter(t => isWithinSLA(new Date(t.createdAt) - new Date(t.customerLastContactAt), SLA.openWithin));
-  const slaAccept = inRange.filter(t => t.acceptedAt);
-  const slaAcceptHit = slaAccept.filter(t => isWithinSLA(new Date(t.acceptedAt) - new Date(t.createdAt), SLA.acceptWithin));
-  const slaClose = inRange.filter(t => t.acceptedAt && t.closedAt);
-  const slaCloseHit = slaClose.filter(t => isWithinSLA(new Date(t.closedAt) - new Date(t.acceptedAt), SLA.closeWithin));
+  const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0) / arr.length : null;
+  const avgAdminOpen = avg(adminOpenTimes);
+  const avgBudderAccept = avg(budderAcceptTimes);
+  const avgBudderClose = avg(budderCloseTimes);
 
-  const slaOpenPct = slaOpen.length ? Math.round(slaOpenHit.length / slaOpen.length * 100) : 0;
-  const slaAcceptPct = slaAccept.length ? Math.round(slaAcceptHit.length / slaAccept.length * 100) : 0;
-  const slaClosePct = slaClose.length ? Math.round(slaCloseHit.length / slaClose.length * 100) : 0;
+  // KPI class by SLA target
+  const kpiClass = (val, target) => {
+    if (val == null) return '';
+    if (val <= target * 0.8) return 'kpi-good';
+    if (val <= target) return 'kpi-warning';
+    return 'kpi-danger';
+  };
 
   // Admin / Budder stats
   const adminStats = {};
@@ -1533,7 +1581,7 @@ function viewAdminReports() {
       budderStats[t.budderName].closed++;
       budderStats[t.budderName].dorms += (t.dormsSent || []).length;
       if (t.closedAt) {
-        budderStats[t.budderName].closeMsSum += new Date(t.closedAt) - new Date(t.acceptedAt);
+        budderStats[t.budderName].closeMsSum += Math.max(0, new Date(t.closedAt) - new Date(t.acceptedAt) - (t.totalHeldMs || 0));
         budderStats[t.budderName].closeMsCount++;
       }
     }
@@ -1560,20 +1608,20 @@ function viewAdminReports() {
         <div class="kpi-value">${totalOpened}</div>
         <div class="kpi-sub">${closed.length} ปิด · ${open.length} ค้าง · ${cancelled.length} ยกเลิก</div>
       </div>
-      <div class="kpi-card ${slaOpenPct >= 80 ? 'kpi-good' : slaOpenPct >= 60 ? 'kpi-warning' : 'kpi-danger'}">
-        <div class="kpi-label">SLA Admin (เปิดใน 1 ชม.)</div>
-        <div class="kpi-value">${slaOpenPct}%</div>
-        <div class="kpi-sub">${slaOpenHit.length} / ${slaOpen.length} ใบ</div>
+      <div class="kpi-card ${kpiClass(avgAdminOpen, SLA.openWithin)}">
+        <div class="kpi-label">⏱ Admin เปิดงาน (เฉลี่ย)</div>
+        <div class="kpi-value" style="font-size: 22px;">${fmtDuration(avgAdminOpen)}</div>
+        <div class="kpi-sub">เป้า ≤ 1 ชม. · ${adminOpenTimes.length} ใบ</div>
       </div>
-      <div class="kpi-card ${slaAcceptPct >= 80 ? 'kpi-good' : slaAcceptPct >= 60 ? 'kpi-warning' : 'kpi-danger'}">
-        <div class="kpi-label">SLA รับงาน (รับใน 1 ชม.)</div>
-        <div class="kpi-value">${slaAcceptPct}%</div>
-        <div class="kpi-sub">${slaAcceptHit.length} / ${slaAccept.length} ใบ</div>
+      <div class="kpi-card ${kpiClass(avgBudderAccept, SLA.acceptWithin)}">
+        <div class="kpi-label">⏱ รับงาน (เฉลี่ย)</div>
+        <div class="kpi-value" style="font-size: 22px;">${fmtDuration(avgBudderAccept)}</div>
+        <div class="kpi-sub">เป้า ≤ 1 ชม. · ${budderAcceptTimes.length} ใบ</div>
       </div>
-      <div class="kpi-card ${slaClosePct >= 80 ? 'kpi-good' : slaClosePct >= 60 ? 'kpi-warning' : 'kpi-danger'}">
-        <div class="kpi-label">SLA ปิดงาน (ปิดใน 2 ชม.)</div>
-        <div class="kpi-value">${slaClosePct}%</div>
-        <div class="kpi-sub">${slaCloseHit.length} / ${slaClose.length} ใบ</div>
+      <div class="kpi-card ${kpiClass(avgBudderClose, SLA.closeWithin)}">
+        <div class="kpi-label">⏱ ปิดงาน (เฉลี่ย)</div>
+        <div class="kpi-value" style="font-size: 22px;">${fmtDuration(avgBudderClose)}</div>
+        <div class="kpi-sub">เป้า ≤ 2 ชม. · ${budderCloseTimes.length} ใบ</div>
       </div>
     </div>
 
@@ -1583,19 +1631,27 @@ function viewAdminReports() {
         <div class="chart-container"><canvas id="chart-status"></canvas></div>
       </div>
       <div class="card chart-card">
-        <div class="card-title">⚡ SLA Performance</div>
-        <div class="chart-container"><canvas id="chart-sla"></canvas></div>
+        <div class="card-title">⏱ Admin เปิดงานเฉลี่ย (เรียงช้า→เร็ว)</div>
+        <div class="chart-container"><canvas id="chart-admin-time"></canvas></div>
       </div>
       <div class="card chart-card" style="grid-column: 1 / -1;">
         <div class="card-title">📈 เปิด vs ปิด รายวัน</div>
         <div class="chart-container tall"><canvas id="chart-trend"></canvas></div>
       </div>
       <div class="card chart-card">
+        <div class="card-title">⏱ Budder รับงานเฉลี่ย (เรียงช้า→เร็ว)</div>
+        <div class="chart-container"><canvas id="chart-budder-accept"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <div class="card-title">⏱ Budder ปิดงานเฉลี่ย (เรียงช้า→เร็ว)</div>
+        <div class="chart-container"><canvas id="chart-budder-close"></canvas></div>
+      </div>
+      <div class="card chart-card">
         <div class="card-title">🎓 University Workload</div>
         <div class="chart-container"><canvas id="chart-uni"></canvas></div>
       </div>
       <div class="card chart-card">
-        <div class="card-title">🏆 Budder Workload</div>
+        <div class="card-title">🏆 Budder Workload (จำนวน)</div>
         <div class="chart-container"><canvas id="chart-budder"></canvas></div>
       </div>
     </div>
@@ -1672,6 +1728,83 @@ function renderReportsCharts() {
   Chart.defaults.color = '#6B7280';
   Chart.defaults.borderColor = '#E5E7EB';
 
+  // Helper: draw vertical SLA target line on horizontal bar chart
+  const targetLinePlugin = {
+    id: 'targetLine',
+    afterDatasetsDraw(chart, args, opts) {
+      if (!opts || !opts.value) return;
+      const { ctx, chartArea, scales } = chart;
+      const x = scales.x.getPixelForValue(opts.value);
+      if (x < chartArea.left || x > chartArea.right) return;
+      ctx.save();
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '600 11px Prompt, sans-serif';
+      ctx.fillStyle = '#EF4444';
+      ctx.textAlign = 'left';
+      const labelX = Math.min(x + 6, chartArea.right - 80);
+      ctx.fillText('🎯 SLA ' + opts.label, labelX, chartArea.top + 14);
+      ctx.restore();
+    }
+  };
+
+  // Helper: color bars by SLA threshold
+  const barColorByTime = (val, target) => {
+    if (val == null) return '#9CA3AF';
+    if (val <= target * 0.8) return '#10B981'; // good = green
+    if (val <= target) return '#F59E0B';        // warning = amber
+    return '#EF4444';                            // danger = red
+  };
+
+  // Helper: avg time bar chart per person (horizontal, sorted slowest first)
+  const renderAvgTimeChart = (canvasId, dataMap, targetMs, targetLabel) => {
+    const ctx = $('#' + canvasId);
+    if (!ctx) return;
+    const entries = Object.entries(dataMap)
+      .filter(([_, v]) => v != null)
+      .sort((a, b) => b[1] - a[1]); // slowest first
+    if (entries.length === 0) {
+      ctx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
+      return;
+    }
+    const names = entries.map(([n]) => n);
+    const dataMins = entries.map(([_, v]) => Math.round(v / 60000 * 10) / 10); // minutes with 1 decimal
+    const targetMins = Math.round(targetMs / 60000 * 10) / 10;
+    const maxVal = Math.max(targetMins * 1.2, ...dataMins);
+    ChartRegistry.create(canvasId, ctx, {
+      type: 'bar',
+      data: {
+        labels: names,
+        datasets: [{
+          label: 'เวลาเฉลี่ย (นาที)',
+          data: dataMins,
+          backgroundColor: dataMins.map(v => barColorByTime(v * 60000, targetMs)),
+          borderRadius: 6,
+          barThickness: 22
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (c) => ` ${fmtDuration(c.parsed.x * 60000)}` } },
+          targetLine: { value: targetMins, label: targetLabel }
+        },
+        scales: {
+          x: { beginAtZero: true, max: maxVal, ticks: { callback: (v) => v + ' น.' } }
+        }
+      },
+      plugins: [targetLinePlugin]
+    });
+  };
+
   // 1. Status Donut
   const statusCounts = {};
   Object.keys(STATUS).forEach(k => statusCounts[k] = 0);
@@ -1695,43 +1828,14 @@ function renderReportsCharts() {
     });
   }
 
-  // 2. SLA Horizontal Bars
-  const slaOpen = inRange.filter(t => t.customerLastContactAt && t.createdAt);
-  const slaOpenHit = slaOpen.filter(t => isWithinSLA(new Date(t.createdAt) - new Date(t.customerLastContactAt), SLA.openWithin));
-  const slaAccept = inRange.filter(t => t.acceptedAt);
-  const slaAcceptHit = slaAccept.filter(t => isWithinSLA(new Date(t.acceptedAt) - new Date(t.createdAt), SLA.acceptWithin));
-  const slaClose = inRange.filter(t => t.acceptedAt && t.closedAt);
-  const slaCloseHit = slaClose.filter(t => isWithinSLA(new Date(t.closedAt) - new Date(t.acceptedAt), SLA.closeWithin));
-  const slaCtx = $('#chart-sla');
-  if (slaCtx) {
-    const pct = [
-      slaOpen.length ? Math.round(slaOpenHit.length / slaOpen.length * 100) : 0,
-      slaAccept.length ? Math.round(slaAcceptHit.length / slaAccept.length * 100) : 0,
-      slaClose.length ? Math.round(slaCloseHit.length / slaClose.length * 100) : 0
-    ];
-    ChartRegistry.create('sla', slaCtx, {
-      type: 'bar',
-      data: {
-        labels: ['Admin เปิดใน 1 ชม.', 'รับงานใน 1 ชม.', 'ปิดงานใน 2 ชม.'],
-        datasets: [{
-          label: '% Hit Rate',
-          data: pct,
-          backgroundColor: pct.map(p => p >= 80 ? '#10B981' : p >= 60 ? '#F59E0B' : '#EF4444'),
-          borderRadius: 6,
-          barThickness: 28
-        }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` ${c.parsed.x}%` } } },
-        scales: {
-          x: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } },
-          y: { ticks: { font: { size: 12 } } }
-        }
-      }
-    });
-  }
+  // 2. Admin Avg Open Time (NEW — replaces SLA bars)
+  const adminAvg = {};
+  State.masters.admins.forEach(a => {
+    const times = inRange.filter(t => t.adminName === a && t.customerLastContactAt && t.createdAt)
+      .map(t => new Date(t.createdAt) - new Date(t.customerLastContactAt));
+    if (times.length > 0) adminAvg[a] = times.reduce((s, v) => s + v, 0) / times.length;
+  });
+  renderAvgTimeChart('chart-admin-time', adminAvg, SLA.openWithin, '1 ชม.');
 
   // 3. Daily Trend Line
   const dayMap = {};
@@ -1782,7 +1886,25 @@ function renderReportsCharts() {
     trendCtx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">📈</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
   }
 
-  // 4. University Workload Horizontal Bar
+  // 4. Budder Avg Accept Time (NEW)
+  const budderAcceptAvg = {};
+  State.masters.budders.forEach(b => {
+    const times = inRange.filter(t => t.budderName === b && t.acceptedAt && t.createdAt)
+      .map(t => new Date(t.acceptedAt) - new Date(t.createdAt));
+    if (times.length > 0) budderAcceptAvg[b] = times.reduce((s, v) => s + v, 0) / times.length;
+  });
+  renderAvgTimeChart('chart-budder-accept', budderAcceptAvg, SLA.acceptWithin, '1 ชม.');
+
+  // 5. Budder Avg Close Time (NEW)
+  const budderCloseAvg = {};
+  State.masters.budders.forEach(b => {
+    const times = inRange.filter(t => t.budderName === b && t.acceptedAt && t.closedAt)
+      .map(t => Math.max(0, new Date(t.closedAt) - new Date(t.acceptedAt) - (t.totalHeldMs || 0)));
+    if (times.length > 0) budderCloseAvg[b] = times.reduce((s, v) => s + v, 0) / times.length;
+  });
+  renderAvgTimeChart('chart-budder-close', budderCloseAvg, SLA.closeWithin, '2 ชม.');
+
+  // 6. University Workload Horizontal Bar
   const uniCounts = {};
   inRange.forEach(t => {
     const k = t.universityName || 'ไม่ระบุ';
@@ -1814,7 +1936,7 @@ function renderReportsCharts() {
     uniCtx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">🎓</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
   }
 
-  // 5. Budder Workload (Stacked Bar: accepted, closed, dorms sent)
+  // 7. Budder Workload (Stacked Bar: accepted, closed, dorms sent)
   const budderCtx = $('#chart-budder');
   if (budderCtx) {
     const budderStats = {};
@@ -1857,7 +1979,7 @@ function renderReportsCharts() {
    ========================================================= */
 function viewBudderAvailable() {
   const list = State.tickets
-    .filter(t => AVAILABLE_STATUSES.includes(t.status))
+    .filter(isInAvailablePool)
     .sort((a, b) => {
       const prioRank = { high: 0, medium: 1, normal: 2 };
       const pa = prioRank[a.priority] ?? 2;
@@ -1877,8 +1999,8 @@ function viewBudderAvailable() {
 
 function viewBudderMine() {
   const list = State.tickets
-    .filter(t => t.status === 'accepted' && t.budderName === State.profileName)
-    .sort((a, b) => new Date(a.acceptedAt) - new Date(b.acceptedAt));
+    .filter(t => isAssignedTo(t, State.profileName))
+    .sort((a, b) => new Date(a.acceptedAt || a.createdAt) - new Date(b.acceptedAt || b.createdAt));
   if (list.length === 0) {
     return `<div class="card"><div class="empty">
       <div class="empty-icon">📋</div>
@@ -1924,10 +2046,14 @@ function renderBudderTicketCard(t, mode) {
   const og = ongoingTime(t);
   let timeBadge = '';
   if (og) {
-    const lvl = slaLevel(og.elapsed, og.target);
-    const phaseTxt = og.phase === 'waiting_accept' ? 'รอรับ' : 'กำลังทำ';
-    const bg = lvl === 'good' ? '#D1FAE5' : lvl === 'warning' ? '#FEF3C7' : '#FEE2E2';
-    timeBadge = `<span class="badge sla-${lvl}" style="background: ${bg};">${phaseTxt} ${fmtDuration(og.elapsed)}</span>`;
+    if (og.paused) {
+      timeBadge = `<span class="badge status-on_hold"><span class="badge-dot"></span>⏸ พัก (${fmtDuration(og.elapsed)})</span>`;
+    } else {
+      const lvl = slaLevel(og.elapsed, og.target);
+      const phaseTxt = og.phase === 'waiting_accept' ? 'รอรับ' : 'กำลังทำ';
+      const bg = lvl === 'good' ? '#D1FAE5' : lvl === 'warning' ? '#FEF3C7' : '#FEE2E2';
+      timeBadge = `<span class="badge sla-${lvl}" style="background: ${bg};">${phaseTxt} ${fmtDuration(og.elapsed)}</span>`;
+    }
   } else if (t.status === 'closed') {
     const m = ticketMetrics(t);
     timeBadge = `<span class="badge status-closed"><span class="badge-dot"></span>ใช้เวลา ${fmtDuration(m.execCloseMs)}</span>`;
@@ -1938,10 +2064,16 @@ function renderBudderTicketCard(t, mode) {
       <button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>
       <button class="btn btn-success" onclick="acceptTicket('${t.id}')">รับงาน</button>`;
   } else if (mode === 'mine') {
-    actions = `
-      <button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>
-      <button class="btn btn-ghost" onclick="releaseTicket('${t.id}')">คืนงาน</button>
-      <button class="btn btn-success" onclick="openCloseDialog('${t.id}')">ปิดงาน</button>`;
+    if (t.status === 'on_hold') {
+      // งานพักอยู่ — Budder ดูได้อย่างเดียว Admin จะเป็นคน resume
+      actions = `<button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>
+                 <span class="text-mute text-tiny" style="align-self:center; padding: 0 8px;">⏸ รอ Admin กด Resume</span>`;
+    } else {
+      actions = `
+        <button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>
+        <button class="btn btn-ghost" onclick="releaseTicket('${t.id}')">คืนงาน</button>
+        <button class="btn btn-success" onclick="openCloseDialog('${t.id}')">ปิดงาน</button>`;
+    }
   } else {
     actions = `<button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>`;
   }
@@ -2006,14 +2138,18 @@ function viewImageFullscreen(dataUrl) {
 function renderTicketDetailModal(t) {
   const m = ticketMetrics(t);
   const isAdmin = State.role === 'admin';
-  const isMyJob = t.status === 'accepted' && t.budderName === State.profileName;
+  const isMyJob = isAssignedTo(t, State.profileName);
 
   let footer = '';
   if (isAdmin) {
     const actions = [];
     if (t.status !== 'closed' && t.status !== 'cancelled') {
       actions.push(`<button class="btn btn-ghost" onclick="goEditTicket('${t.id}')">✏️ แก้ไข</button>`);
-      if (t.status !== 'on_hold') actions.push(`<button class="btn btn-ghost" onclick="setTicketStatus('${t.id}', 'on_hold')">⏸️ พักงาน</button>`);
+      if (t.status === 'on_hold') {
+        actions.push(`<button class="btn btn-accent" onclick="resumeTicket('${t.id}')">▶️ Resume</button>`);
+      } else {
+        actions.push(`<button class="btn btn-ghost" onclick="setTicketStatus('${t.id}', 'on_hold')">⏸️ พักงาน</button>`);
+      }
       if (t.status === 'accepted') actions.push(`<button class="btn btn-ghost" onclick="reassignTicket('${t.id}')">🔄 ให้คนอื่นรับ</button>`);
       actions.push(`<button class="btn btn-danger" onclick="cancelTicket('${t.id}')">❌ ยกเลิก</button>`);
     }
@@ -2021,11 +2157,13 @@ function renderTicketDetailModal(t) {
     footer = actions.join('');
   } else {
     const actions = [];
-    if (AVAILABLE_STATUSES.includes(t.status)) {
+    if (isInAvailablePool(t)) {
       actions.push(`<button class="btn btn-success" onclick="acceptTicket('${t.id}'); closeModal();">รับงาน</button>`);
-    } else if (isMyJob) {
+    } else if (isMyJob && t.status === 'accepted') {
       actions.push(`<button class="btn btn-ghost" onclick="releaseTicket('${t.id}'); closeModal();">คืนงาน</button>`);
       actions.push(`<button class="btn btn-success" onclick="closeModal(); openCloseDialog('${t.id}');">ปิดงาน</button>`);
+    } else if (isMyJob && t.status === 'on_hold') {
+      // Budder ดูได้ แต่ทำอะไรไม่ได้ Admin ต้อง Resume ก่อน
     }
     actions.push(`<button class="btn btn-secondary" onclick="closeModal()">ปิด</button>`);
     footer = actions.join('');
@@ -2051,12 +2189,13 @@ function renderTicketDetailModal(t) {
           <div class="timeline-item"><div class="timeline-dot ${t.acceptedAt ? 'done' : ''}"></div><div class="timeline-label ${t.acceptedAt ? 'done' : ''}">Budder รับงาน${t.budderName ? ` (${escapeHtml(t.budderName)})` : ''}</div><div class="timeline-time">${fmtDateTime(t.acceptedAt)}</div></div>
           <div class="timeline-item"><div class="timeline-dot ${t.closedAt ? 'done' : ''}"></div><div class="timeline-label ${t.closedAt ? 'done' : ''}">ปิดงาน</div><div class="timeline-time">${fmtDateTime(t.closedAt)}</div></div>
         </div>
-        ${m.adminOpenMs != null || m.waitAcceptMs != null || m.execCloseMs != null ? `
+        ${m.adminOpenMs != null || m.waitAcceptMs != null || m.execCloseMs != null || m.heldMs > 0 ? `
           <div class="mt-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; font-size: 12px;">
             ${m.adminOpenMs != null ? `<div><div class="text-mute text-tiny">Admin เปิดใน</div><div class="sla-${slaLevel(m.adminOpenMs, SLA.openWithin)}" style="font-weight:600;">${fmtDuration(m.adminOpenMs)}</div></div>` : ''}
             ${m.waitAcceptMs != null ? `<div><div class="text-mute text-tiny">รอรับ</div><div class="sla-${slaLevel(m.waitAcceptMs, SLA.acceptWithin)}" style="font-weight:600;">${fmtDuration(m.waitAcceptMs)}</div></div>` : ''}
-            ${m.execCloseMs != null ? `<div><div class="text-mute text-tiny">Budder ปิดใน</div><div class="sla-${slaLevel(m.execCloseMs, SLA.closeWithin)}" style="font-weight:600;">${fmtDuration(m.execCloseMs)}</div></div>` : ''}
+            ${m.execCloseMs != null ? `<div><div class="text-mute text-tiny">Budder ปิดใน${m.heldMs > 0 ? ' (หักพัก)' : ''}</div><div class="sla-${slaLevel(m.execCloseMs, SLA.closeWithin)}" style="font-weight:600;">${fmtDuration(m.execCloseMs)}</div></div>` : ''}
             ${m.totalMs != null ? `<div><div class="text-mute text-tiny">เวลารวม</div><div style="font-weight:600;">${fmtDuration(m.totalMs)}</div></div>` : ''}
+            ${m.heldMs > 0 ? `<div><div class="text-mute text-tiny">⏸ พักรวม</div><div style="color: var(--accent-dark); font-weight:600;">${fmtDuration(m.heldMs)}</div></div>` : ''}
           </div>` : ''}
       </div>
 
@@ -2184,7 +2323,7 @@ async function acceptTicket(id) {
   if (!State.profileName) { toast('กรุณาเลือกชื่อก่อน', 'error'); return; }
   const t = State.tickets.find(x => x.id === id);
   if (!t) return;
-  if (!AVAILABLE_STATUSES.includes(t.status)) { toast('งานนี้ไม่สามารถรับได้แล้ว', 'error'); return; }
+  if (!isInAvailablePool(t)) { toast('งานนี้ไม่สามารถรับได้แล้ว', 'error'); return; }
   const updated = { ...t, status: 'accepted', acceptedAt: nowISO(), budderName: State.profileName };
   const ok = await Store.saveTicket(updated);
   if (ok) toast(`รับงาน ${id} เรียบร้อย`, 'success');
@@ -2203,12 +2342,38 @@ async function setTicketStatus(id, newStatus) {
   const t = State.tickets.find(x => x.id === id);
   if (!t) return;
   const updated = { ...t, status: newStatus };
-  if (newStatus === 'on_hold' || newStatus === 'reassigned') {
+  if (newStatus === 'on_hold') {
+    // พักงาน — เก็บ Budder และ acceptedAt ไว้ เริ่มจับเวลาพัก
+    updated.holdStartedAt = nowISO();
+  } else if (newStatus === 'reassigned') {
+    // ปล่อยกลับ pool — ลบ Budder
     updated.acceptedAt = null;
     updated.budderName = null;
+    updated.holdStartedAt = null;
   }
   const ok = await Store.saveTicket(updated);
   if (ok) { closeModal(); toast(`เปลี่ยนสถานะเป็น "${STATUS[newStatus]}"`, 'success'); }
+}
+
+async function resumeTicket(id) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t || t.status !== 'on_hold') return;
+  // คำนวณเวลาพักครั้งนี้ บวกเข้า totalHeldMs
+  const heldMs = t.holdStartedAt ? Date.now() - new Date(t.holdStartedAt).getTime() : 0;
+  const newTotal = (t.totalHeldMs || 0) + heldMs;
+  // กลับไปสถานะเดิม — ถ้ามี Budder = accepted, ถ้าไม่ = reassigned
+  const newStatus = t.budderName ? 'accepted' : 'reassigned';
+  const updated = {
+    ...t,
+    status: newStatus,
+    holdStartedAt: null,
+    totalHeldMs: newTotal
+  };
+  const ok = await Store.saveTicket(updated);
+  if (ok) {
+    closeModal();
+    toast(`▶️ Resume งาน${t.budderName ? ` — กลับให้ ${t.budderName}` : ''} (พักไป ${fmtDuration(heldMs)})`, 'success');
+  }
 }
 
 async function reassignTicket(id) {
@@ -2370,7 +2535,8 @@ function renderInner(html) {
 }
 
 function attachFirebaseSetupEvents() {
-  $('#firebase-form').addEventListener('submit', handleFirebaseSetup);
+  const form = $('#firebase-form');
+  if (form) form.addEventListener('submit', handleFirebaseSetup);
 }
 
 async function handleFirebaseSetup(e) {
@@ -2405,11 +2571,13 @@ async function handleFirebaseSetup(e) {
 }
 
 function resetFirebaseConfig() {
-  if (!confirm('ล้าง Firebase config และตั้งค่าใหม่?')) return;
+  if (!confirm('ล้าง Firebase config และตั้งค่าใหม่? (ข้อมูลใน Firestore ของคุณยังอยู่ครบ — แค่ disconnect จากเครื่องนี้)')) return;
   try { localStorage.removeItem(LS_KEY_FIREBASE); } catch (e) {}
   Store.disconnect();
   State.firebaseReady = false;
   State.authed = false; State.role = null; State.profileName = null;
+  State.masters = { admins: [], budders: [], universities: [], counters: {} };
+  State.tickets = [];
   render();
 }
 
@@ -2587,9 +2755,9 @@ async function submitCreateForm() {
   let ticket;
   if (editingId) {
     ticket = { ...State.tickets.find(t => t.id === editingId) };
+    // ไม่อัปเดต customerLastContactAt ตอน edit — ล็อกหลังเปิดใบงาน
     Object.assign(ticket, {
       adminName, universityPrefix, universityName: uni.name,
-      customerLastContactAt: new Date(customerLastContact).toISOString(),
       buddyLineId, buddyNickname, buddyPhone, priority,
       dormName: dormName || null, budget, moveInDate, specialRequest: specialRequest || null, notes: notes || null
     });
@@ -2605,7 +2773,8 @@ async function submitCreateForm() {
       dormName: dormName || null, budget, moveInDate, 
       specialRequest: specialRequest || null, notes: notes || null,
       acceptedAt: null, closedAt: null, cancelledAt: null,
-      budderName: null, dormsSent: []
+      budderName: null, dormsSent: [],
+      holdStartedAt: null, totalHeldMs: 0
     };
   }
 
@@ -2623,12 +2792,179 @@ async function submitCreateForm() {
 }
 
 /* =========================================================
+   BACKUP — Export / Import
+   ========================================================= */
+async function exportBackup() {
+  toast('กำลังเตรียมข้อมูล...', 'info');
+  try {
+    // Load all images
+    const images = {};
+    let imageCount = 0;
+    for (const t of State.tickets) {
+      const imgs = await Store.loadImages(t.id);
+      if (imgs && imgs.length > 0) {
+        images[t.id] = imgs;
+        imageCount += imgs.length;
+      }
+    }
+    const backup = {
+      schemaVersion: '1.0',
+      app: 'PropertyBuddy',
+      exportedAt: nowISO(),
+      masters: State.masters,
+      tickets: State.tickets,
+      images: images
+    };
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PropertyBuddy_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast(`✓ Export สำเร็จ — ${State.tickets.length} ใบงาน, ${imageCount} รูป`, 'success');
+  } catch (e) {
+    toast('Export ไม่สำเร็จ: ' + e.message, 'error');
+  }
+}
+
+function openImportDialog() {
+  showModal(`
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">📥 Import ข้อมูลจาก Backup</div>
+        <div class="text-mute text-small mt-1">ใช้ไฟล์ที่ Export จากระบบนี้</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field mb-3">
+        <label class="field-label">เลือกไฟล์ Backup (.json)</label>
+        <input class="input" type="file" id="import-file" accept="application/json,.json">
+      </div>
+      <div id="import-preview"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+    </div>
+  `);
+  $('#import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      showImportPreview(data);
+    } catch (err) {
+      $('#import-preview').innerHTML = `<div class="login-error">ไฟล์ไม่ถูกต้อง: ${escapeHtml(err.message)}</div>`;
+    }
+  });
+}
+
+function showImportPreview(data) {
+  if (!data || !data.masters || !Array.isArray(data.tickets)) {
+    $('#import-preview').innerHTML = `<div class="login-error">ไฟล์ไม่ใช่ backup ของ Property Buddy</div>`;
+    return;
+  }
+  window._importData = data;
+  const adminCount = data.masters.admins?.length || 0;
+  const budderCount = data.masters.budders?.length || 0;
+  const uniCount = data.masters.universities?.length || 0;
+  const imageSetCount = Object.keys(data.images || {}).length;
+  $('#import-preview').innerHTML = `
+    <div class="card" style="background: var(--surface-2);">
+      <div class="card-body" style="padding: 16px;">
+        <div class="detail-section-title">ข้อมูลใน backup</div>
+        <div class="detail-row"><div class="key">Export เมื่อ</div><div class="val">${fmtDateTime(data.exportedAt)}</div></div>
+        <div class="detail-row"><div class="key">Admins</div><div class="val">${adminCount} คน</div></div>
+        <div class="detail-row"><div class="key">Budders</div><div class="val">${budderCount} คน</div></div>
+        <div class="detail-row"><div class="key">มหาวิทยาลัย</div><div class="val">${uniCount} แห่ง</div></div>
+        <div class="detail-row"><div class="key">ใบงาน</div><div class="val">${data.tickets.length} ใบ</div></div>
+        <div class="detail-row"><div class="key">รูปแนบ</div><div class="val">${imageSetCount} ชุด</div></div>
+      </div>
+    </div>
+    <div class="row mt-3" style="justify-content: flex-end; gap: 10px;">
+      <button class="btn btn-secondary" onclick="performImport('merge')">+ Merge เข้าของเดิม</button>
+      <button class="btn btn-danger" onclick="performImport('replace')">⚠ Replace ทับทั้งหมด</button>
+    </div>
+    <div class="text-tiny text-mute mt-2" style="line-height:1.7;">
+      <strong>Merge:</strong> เพิ่มข้อมูลที่ ID ไม่ซ้ำ คงของเดิมไว้<br>
+      <strong>Replace:</strong> ลบของเดิมทั้งหมด ใช้ backup แทน (ระวัง!)
+    </div>
+  `;
+}
+
+async function performImport(mode) {
+  const data = window._importData;
+  if (!data) return;
+  const confirmMsg = mode === 'replace'
+    ? `⚠ REPLACE จะลบข้อมูลปัจจุบันทั้งหมดและใช้ backup แทน — ยืนยัน?`
+    : `MERGE จะเพิ่มข้อมูลที่ ID ไม่ซ้ำ — ยืนยัน?`;
+  if (!confirm(confirmMsg)) return;
+
+  toast('กำลัง import...', 'info');
+
+  try {
+    if (mode === 'replace') {
+      State.masters = {
+        admins: data.masters.admins || [],
+        budders: data.masters.budders || [],
+        universities: data.masters.universities || [],
+        counters: data.masters.counters || {}
+      };
+      await Store.saveMasters();
+      for (const t of data.tickets) await Store.saveTicket(t);
+      for (const [id, imgs] of Object.entries(data.images || {})) await Store.saveImages(id, imgs);
+    } else {
+      // Merge
+      const existingAdmins = new Set(State.masters.admins);
+      (data.masters.admins || []).forEach(a => existingAdmins.add(a));
+      State.masters.admins = Array.from(existingAdmins);
+
+      const existingBudders = new Set(State.masters.budders);
+      (data.masters.budders || []).forEach(b => existingBudders.add(b));
+      State.masters.budders = Array.from(existingBudders);
+
+      const existingUnis = new Map(State.masters.universities.map(u => [u.prefix, u]));
+      (data.masters.universities || []).forEach(u => {
+        if (!existingUnis.has(u.prefix)) existingUnis.set(u.prefix, u);
+      });
+      State.masters.universities = Array.from(existingUnis.values());
+
+      // Merge counters: take max
+      Object.entries(data.masters.counters || {}).forEach(([prefix, count]) => {
+        if (!State.masters.counters[prefix] || count > State.masters.counters[prefix]) {
+          State.masters.counters[prefix] = count;
+        }
+      });
+
+      const existingIds = new Set(State.tickets.map(t => t.id));
+      const newTickets = data.tickets.filter(t => !existingIds.has(t.id));
+
+      await Store.saveMasters();
+      for (const t of newTickets) await Store.saveTicket(t);
+      for (const [id, imgs] of Object.entries(data.images || {})) {
+        if (!existingIds.has(id)) await Store.saveImages(id, imgs);
+      }
+    }
+    closeModal();
+    delete window._importData;
+    toast(`✓ Import ${mode} สำเร็จ`, 'success');
+  } catch (e) {
+    toast('Import ไม่สำเร็จ: ' + e.message, 'error');
+  }
+}
+
+/* =========================================================
    INIT
    ========================================================= */
 async function init() {
   $('#app').innerHTML = `<div class="login-wrap"><div class="login-card" style="text-align:center;"><div class="spinner"></div><div class="text-mute mt-2">กำลังโหลด...</div></div></div>`;
 
-  // Check for Firebase config: embedded > localStorage > setup wizard
+  // Find Firebase config: embedded > saved in localStorage > setup wizard
   let config = EMBEDDED_FIREBASE_CONFIG;
   if (!config) {
     try {
@@ -2642,11 +2978,6 @@ async function init() {
     if (result.ok) {
       Store.subscribeMasters();
       Store.subscribeTickets();
-      // Restore profile if saved
-      try {
-        const p = JSON.parse(localStorage.getItem(LS_KEY_PROFILE) || 'null');
-        // Don't auto-restore — user should login each time for security
-      } catch (e) {}
     }
   }
 
@@ -2655,11 +2986,12 @@ async function init() {
 
 // Expose globals for inline handlers
 Object.assign(window, {
-  acceptTicket, releaseTicket, cancelTicket, reassignTicket, setTicketStatus,
+  acceptTicket, releaseTicket, cancelTicket, reassignTicket, setTicketStatus, resumeTicket,
   openTicketDetail, openCloseDialog, confirmCloseTicket, addDormRow, removeDormRow,
   viewImageFullscreen, addListItem, removeListItem, addUniversity, removeUniversity,
   firstTimeAdminSetup, switchProfile, closeModal, logout, removeImageAt,
-  goEditTicket, resetFirebaseConfig, State, renderInner, viewAdminCreate
+  goEditTicket, resetFirebaseConfig, State, renderInner, viewAdminCreate,
+  exportBackup, openImportDialog, showImportPreview, performImport
 });
 
 init();
