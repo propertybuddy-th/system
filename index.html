@@ -1,0 +1,2670 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Property Buddy — Certified Budder Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ DESIGN TOKENS — PURPLE / YELLOW / WHITE ============ */
+:root {
+  --brand: #6D28D9;
+  --brand-dark: #5B21B6;
+  --brand-light: #C4B5FD;
+  --brand-soft: #F5F3FF;
+  --accent: #FACC15;
+  --accent-dark: #EAB308;
+  --accent-soft: #FEF9C3;
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-2: #FAFAFA;
+  --surface-3: #F9FAFB;
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;
+  --text: #111827;
+  --text-2: #6B7280;
+  --text-3: #9CA3AF;
+  --status-new: #6366F1;
+  --status-accepted: #0EA5E9;
+  --status-closed: #10B981;
+  --status-cancelled: #6B7280;
+  --status-on_hold: #EAB308;
+  --status-reassigned: #8B5CF6;
+  --sla-good: #10B981;
+  --sla-warning: #F59E0B;
+  --sla-danger: #EF4444;
+  --shadow-sm: 0 1px 2px rgba(17,24,39,.05);
+  --shadow-md: 0 4px 12px rgba(17,24,39,.08);
+  --shadow-lg: 0 12px 32px rgba(109,40,217,.18);
+  --radius: 10px;
+  --radius-lg: 16px;
+}
+
+/* ============ RESET ============ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 15px; }
+body {
+  font-family: 'Prompt', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; font-size: inherit; }
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { display: block; max-width: 100%; }
+code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+/* ============ LAYOUT ============ */
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+.header {
+  background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);
+  color: white;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  box-shadow: var(--shadow-md);
+  position: relative;
+}
+.header::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-dark) 100%);
+}
+.header-brand { display: flex; align-items: center; gap: 12px; }
+.header-logo {
+  width: 38px; height: 38px;
+  background: var(--accent);
+  border-radius: 10px;
+  display: grid; place-items: center;
+  color: var(--brand-dark);
+  font-weight: 700;
+  font-size: 19px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+}
+.header-title { font-weight: 600; font-size: 17px; line-height: 1.1; }
+.header-subtitle { font-size: 12px; opacity: 0.85; }
+.header-actions { display: flex; align-items: center; gap: 12px; }
+.user-pill {
+  background: rgba(255,255,255,.16);
+  border: 1px solid rgba(255,255,255,.25);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: white;
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.user-pill:hover { background: rgba(255,255,255,.28); }
+
+.connection-indicator {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(250,204,21,.2);
+  color: var(--accent);
+}
+.connection-indicator .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+.connection-indicator.online { background: rgba(16,185,129,.2); color: #6EE7B7; }
+.connection-indicator.online .dot { background: #6EE7B7; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+.nav-tabs {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.nav-tab {
+  padding: 14px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: all .2s;
+}
+.nav-tab:hover { color: var(--text); }
+.nav-tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+.nav-tab .badge-count {
+  background: var(--accent);
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+
+.main { flex: 1; padding: 24px; max-width: 1400px; width: 100%; margin: 0 auto; }
+@media (max-width: 640px) { .main { padding: 14px; } }
+
+/* ============ LOGIN / SETUP ============ */
+.login-wrap {
+  min-height: 100vh;
+  display: grid; place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at top left, #EDE9FE 0%, #FFFFFF 50%, #FEF9C3 100%);
+}
+.login-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 40px 32px;
+  width: 100%; max-width: 460px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+}
+.login-card.wide { max-width: 600px; }
+.login-logo {
+  width: 64px; height: 64px;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
+  border-radius: 16px;
+  display: grid; place-items: center;
+  color: var(--accent); font-weight: 700; font-size: 28px;
+  margin: 0 auto 20px;
+  box-shadow: 0 8px 24px rgba(109,40,217,.35);
+  position: relative;
+}
+.login-logo::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), transparent);
+  z-index: -1;
+  opacity: 0.4;
+  filter: blur(8px);
+}
+.login-title { text-align: center; font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+.login-subtitle { text-align: center; color: var(--text-2); font-size: 14px; margin-bottom: 24px; }
+.login-form { display: flex; flex-direction: column; gap: 14px; }
+.login-error {
+  background: #FEE2E2; color: #991B1B;
+  padding: 10px 14px; border-radius: var(--radius);
+  font-size: 13px;
+}
+.login-hint {
+  margin-top: 18px; padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text-3);
+  text-align: center;
+  line-height: 1.7;
+}
+.setup-steps {
+  background: var(--brand-soft);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  border: 1px solid var(--brand-light);
+}
+.setup-steps ol {
+  margin: 6px 0 0 22px;
+  line-height: 1.7;
+}
+.setup-steps a { font-weight: 500; }
+.setup-steps strong { color: var(--brand-dark); }
+
+/* ============ FORMS ============ */
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label {
+  font-size: 13px; font-weight: 500; color: var(--text-2);
+}
+.field-label .req { color: #EF4444; }
+.field-hint { font-size: 12px; color: var(--text-3); }
+.input, .select, .textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 14px;
+  color: var(--text);
+  transition: all .15s;
+}
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(109,40,217,.12);
+}
+.textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+.textarea.mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; }
+.select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236B7280'%3E%3Cpath d='M5.5 7.5 10 12l4.5-4.5z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 20px; padding-right: 36px; }
+
+.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.form-grid .full { grid-column: 1 / -1; }
+@media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+
+/* ============ BUTTONS ============ */
+.btn {
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--brand); color: white; }
+.btn-primary:hover { background: var(--brand-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(109,40,217,.3); }
+.btn-accent { background: var(--accent); color: var(--brand-dark); font-weight: 600; }
+.btn-accent:hover { background: var(--accent-dark); color: white; transform: translateY(-1px); }
+.btn-secondary { background: var(--surface); color: var(--text); border: 1.5px solid var(--border); }
+.btn-secondary:hover { border-color: var(--brand); color: var(--brand); }
+.btn-ghost { color: var(--text-2); padding: 8px 12px; }
+.btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+.btn-danger { background: #EF4444; color: white; }
+.btn-danger:hover { background: #DC2626; }
+.btn-success { background: var(--status-closed); color: white; }
+.btn-success:hover { background: #059669; }
+.btn-block { width: 100%; justify-content: center; }
+.btn-sm { padding: 7px 12px; font-size: 13px; }
+.btn-lg { padding: 13px 22px; font-size: 15px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+/* ============ CARDS ============ */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.card-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap;
+}
+.card-title { font-size: 16px; font-weight: 600; }
+.card-body { padding: 22px; }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 3px;
+  background: var(--border);
+}
+.kpi-label { font-size: 12px; color: var(--text-2); font-weight: 500; text-transform: uppercase; letter-spacing: .03em; }
+.kpi-value { font-size: 28px; font-weight: 600; margin-top: 6px; }
+.kpi-sub { font-size: 12px; color: var(--text-3); margin-top: 4px; }
+.kpi-accent .kpi-value { color: var(--brand); }
+.kpi-accent::before { background: var(--brand); }
+.kpi-yellow .kpi-value { color: var(--accent-dark); }
+.kpi-yellow::before { background: var(--accent); }
+.kpi-good .kpi-value { color: var(--sla-good); }
+.kpi-good::before { background: var(--sla-good); }
+.kpi-warning .kpi-value { color: var(--sla-warning); }
+.kpi-warning::before { background: var(--sla-warning); }
+.kpi-danger .kpi-value { color: var(--sla-danger); }
+.kpi-danger::before { background: var(--sla-danger); }
+
+/* ============ BADGES ============ */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+.status-new { background: #EEF2FF; color: var(--status-new); }
+.status-new .badge-dot { background: var(--status-new); }
+.status-accepted { background: #E0F2FE; color: var(--status-accepted); }
+.status-accepted .badge-dot { background: var(--status-accepted); }
+.status-closed { background: #D1FAE5; color: var(--status-closed); }
+.status-closed .badge-dot { background: var(--status-closed); }
+.status-cancelled { background: #F3F4F6; color: var(--status-cancelled); }
+.status-cancelled .badge-dot { background: var(--status-cancelled); }
+.status-on_hold { background: #FEF9C3; color: var(--status-on_hold); }
+.status-on_hold .badge-dot { background: var(--status-on_hold); }
+.status-reassigned { background: #EDE9FE; color: var(--status-reassigned); }
+.status-reassigned .badge-dot { background: var(--status-reassigned); }
+
+.sla-good { color: var(--sla-good); }
+.sla-warning { color: var(--sla-warning); }
+.sla-danger { color: var(--sla-danger); }
+
+.priority-high { background: #FEE2E2; color: #B91C1C; }
+.priority-medium { background: #FEF3C7; color: #92400E; }
+.priority-normal { background: #F3F4F6; color: #4B5563; }
+
+/* ============ TABLE ============ */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table { width: 100%; border-collapse: collapse; min-width: 800px; }
+.table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  vertical-align: middle;
+}
+.table tr:last-child td { border-bottom: none; }
+.table tr.clickable { cursor: pointer; transition: background .12s; }
+.table tr.clickable:hover { background: var(--brand-soft); }
+.table .ticket-id { font-weight: 600; color: var(--brand); }
+.cell-mono { font-variant-numeric: tabular-nums; }
+
+/* ============ TICKET CARD ============ */
+.ticket-list { display: grid; gap: 14px; }
+.ticket-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  transition: all .15s;
+}
+.ticket-card:hover { border-color: var(--brand-light); box-shadow: var(--shadow-md); }
+.ticket-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap;
+}
+.ticket-card-meta {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  font-size: 13px; color: var(--text-2);
+}
+.ticket-card-meta .label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 2px; }
+.ticket-card-meta .value { color: var(--text); font-weight: 500; }
+.ticket-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ticket-card-actions .btn { flex: 1; min-width: 120px; }
+
+/* ============ MODAL ============ */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(17,24,39,.55);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: grid; place-items: center;
+  padding: 16px;
+  animation: fadeIn .15s;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  max-width: 720px;
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp .2s;
+}
+.modal-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.modal-title { font-size: 17px; font-weight: 600; }
+.modal-close {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  color: var(--text-2);
+  font-size: 22px;
+  line-height: 1;
+}
+.modal-close:hover { background: var(--surface-2); color: var(--text); }
+.modal-body { padding: 22px; overflow-y: auto; flex: 1; }
+.modal-footer {
+  padding: 16px 22px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 10px; justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* ============ FILTERS ============ */
+.toolbar {
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+  margin-bottom: 18px;
+}
+.toolbar .search-input {
+  flex: 1; min-width: 220px;
+  position: relative;
+}
+.toolbar .search-input input {
+  padding-left: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239CA3AF'%3E%3Cpath fill-rule='evenodd' d='M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9z' clip-rule='evenodd'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 18px;
+}
+.toolbar .select { min-width: 140px; max-width: 200px; }
+
+/* ============ IMAGE UPLOAD ============ */
+.image-drop {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .15s;
+  background: var(--surface-2);
+}
+.image-drop:hover { border-color: var(--brand); background: var(--brand-soft); }
+.image-drop input { display: none; }
+.image-drop-text { font-size: 13px; color: var(--text-2); }
+.image-drop-hint { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+.image-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.image-preview {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.image-preview img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+.image-preview-remove {
+  position: absolute; top: 4px; right: 4px;
+  width: 24px; height: 24px;
+  background: rgba(0,0,0,.6);
+  border-radius: 50%;
+  color: white;
+  display: grid; place-items: center;
+  font-size: 14px;
+}
+.image-preview-remove:hover { background: rgba(0,0,0,.85); }
+
+/* ============ DETAIL ============ */
+.detail-section { padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+.detail-section:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+.detail-section-title { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+.detail-row { display: grid; grid-template-columns: 140px 1fr; gap: 14px; padding: 4px 0; font-size: 14px; }
+.detail-row .key { color: var(--text-2); }
+.detail-row .val { font-weight: 500; }
+@media (max-width: 480px) { .detail-row { grid-template-columns: 1fr; gap: 2px; } .detail-row .key { font-size: 12px; } }
+
+.timeline { display: grid; gap: 10px; }
+.timeline-item { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; }
+.timeline-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); margin-left: 7px; }
+.timeline-dot.done { background: var(--brand); box-shadow: 0 0 0 4px rgba(109,40,217,.15); }
+.timeline-label { font-size: 13px; color: var(--text-2); }
+.timeline-label.done { color: var(--text); font-weight: 500; }
+.timeline-time { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.dorm-list { display: grid; gap: 8px; }
+.dorm-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.dorm-row input { padding: 8px 12px; font-size: 13px; }
+.dorm-row .remove-btn {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: 6px;
+  color: var(--text-3);
+}
+.dorm-row .remove-btn:hover { background: #FEE2E2; color: #DC2626; }
+@media (max-width: 540px) { .dorm-row { grid-template-columns: 1fr auto; } .dorm-row input:nth-child(2) { grid-column: 1 / -1; } }
+
+/* ============ SUBTABS ============ */
+.subtabs { display: flex; gap: 6px; margin-bottom: 18px; background: var(--surface-2); padding: 4px; border-radius: 10px; width: fit-content; max-width: 100%; overflow-x: auto; }
+.subtab { padding: 8px 16px; font-size: 13px; font-weight: 500; color: var(--text-2); border-radius: 7px; white-space: nowrap; }
+.subtab.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-sm); }
+
+/* ============ CHARTS ============ */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  margin-top: 18px;
+}
+.chart-card { padding: 20px; }
+.chart-card .card-title { margin-bottom: 12px; }
+.chart-container {
+  position: relative;
+  height: 280px;
+  width: 100%;
+}
+.chart-container.tall { height: 340px; }
+@media (max-width: 900px) {
+  .chart-grid { grid-template-columns: 1fr; }
+}
+
+/* ============ TOAST ============ */
+.toast-root { position: fixed; bottom: 24px; right: 24px; z-index: 100; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.toast {
+  background: var(--text);
+  color: white;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex; align-items: center; gap: 10px;
+  animation: slideInRight .25s;
+  pointer-events: auto;
+  max-width: 360px;
+}
+@keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+.toast-success { background: var(--status-closed); }
+.toast-error { background: #DC2626; }
+
+/* ============ EMPTY / LOADING ============ */
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-3);
+}
+.empty-icon { font-size: 48px; margin-bottom: 8px; opacity: .5; }
+.empty-title { font-size: 16px; color: var(--text-2); margin-bottom: 4px; }
+.empty-desc { font-size: 13px; }
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin: 40px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============ UTILS ============ */
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.text-mute { color: var(--text-2); }
+.text-small { font-size: 13px; }
+.text-tiny { font-size: 12px; }
+.gap-2 { gap: 8px; }
+.mt-1 { margin-top: 6px; } .mt-2 { margin-top: 12px; } .mt-3 { margin-top: 18px; }
+.mb-2 { margin-bottom: 12px; } .mb-3 { margin-bottom: 18px; }
+.hide-mobile { }
+@media (max-width: 640px) { .hide-mobile { display: none; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal-root"></div>
+<div class="toast-root" id="toast-root"></div>
+
+<!-- Firebase SDK (compat mode for script-tag usage) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.7.1/firebase-firestore-compat.min.js"></script>
+<!-- Chart.js for graphs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- SheetJS for Excel export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+'use strict';
+
+/* =========================================================
+   PROPERTY BUDDY — CERTIFIED BUDDER MANAGEMENT SYSTEM
+   Theme: Purple / Yellow / White
+   Backend: Firebase Firestore (real-time sync)
+   ========================================================= */
+
+// ============ EMBEDDED CONFIG (optional) ============
+// Team lead can edit this object and skip the setup wizard for users
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
+
+// ============ CONFIG ============
+const CREDENTIALS = {
+  admin: { user: 'admin', pass: 'welovepropertybuddy', role: 'admin' },
+  budder: { user: 'budder', pass: 'wearepropertybudder', role: 'budder' }
+};
+
+const SLA = {
+  openWithin: 60 * 60 * 1000,
+  acceptWithin: 60 * 60 * 1000,
+  closeWithin: 2 * 60 * 60 * 1000
+};
+
+const STATUS = {
+  new: 'ใหม่',
+  accepted: 'รับงานแล้ว',
+  closed: 'ปิดงาน',
+  cancelled: 'ยกเลิก',
+  on_hold: 'พักงาน',
+  reassigned: 'รอรับใหม่'
+};
+
+const STATUS_COLORS = {
+  new: '#6366F1',
+  accepted: '#0EA5E9',
+  closed: '#10B981',
+  cancelled: '#9CA3AF',
+  on_hold: '#EAB308',
+  reassigned: '#8B5CF6'
+};
+
+const PRIORITY = { normal: 'ปกติ', medium: 'ปานกลาง', high: 'ด่วน' };
+
+const AVAILABLE_STATUSES = ['new', 'reassigned', 'on_hold'];
+
+const LS_KEY_FIREBASE = 'pb_firebase_config';
+const LS_KEY_PROFILE = 'pb_profile';
+
+// ============ STATE ============
+const State = {
+  firebaseReady: false,
+  authed: false,
+  role: null,
+  profileName: null,
+  view: 'setup',
+  subView: null,
+  subSubView: null,
+  masters: { admins: [], budders: [], universities: [], counters: {} },
+  tickets: [],
+  filters: {
+    search: '', status: '', universityPrefix: '', adminName: '', budderName: '',
+    dateFrom: '', dateTo: ''
+  },
+  reportFrom: null,
+  reportTo: null,
+  timerInterval: null,
+  online: false
+};
+
+// ============ CHART REGISTRY ============
+const ChartRegistry = {
+  charts: {},
+  create(id, ctx, config) {
+    this.destroy(id);
+    this.charts[id] = new Chart(ctx, config);
+    return this.charts[id];
+  },
+  destroy(id) {
+    if (this.charts[id]) {
+      try { this.charts[id].destroy(); } catch (e) {}
+      delete this.charts[id];
+    }
+  },
+  destroyAll() { Object.keys(this.charts).forEach(k => this.destroy(k)); }
+};
+
+/* =========================================================
+   FIREBASE STORAGE LAYER
+   ========================================================= */
+const Store = {
+  db: null,
+  unsubTickets: null,
+  unsubMasters: null,
+
+  async init(config) {
+    try {
+      if (firebase.apps.length === 0) firebase.initializeApp(config);
+      else { firebase.app().delete().catch(() => {}); firebase.initializeApp(config); }
+      this.db = firebase.firestore();
+      // Test by reading masters (will succeed even if empty)
+      await this.db.collection('config').doc('masters').get();
+      State.firebaseReady = true;
+      State.online = true;
+      return { ok: true };
+    } catch (e) {
+      console.error('Firebase init failed:', e);
+      State.firebaseReady = false;
+      State.online = false;
+      return { ok: false, error: e.message };
+    }
+  },
+
+  subscribeMasters() {
+    if (this.unsubMasters) this.unsubMasters();
+    this.unsubMasters = this.db.collection('config').doc('masters')
+      .onSnapshot(doc => {
+        if (doc.exists) {
+          const d = doc.data();
+          State.masters = {
+            admins: d.admins || [],
+            budders: d.budders || [],
+            universities: d.universities || [],
+            counters: d.counters || {}
+          };
+        } else {
+          State.masters = { admins: [], budders: [], universities: [], counters: {} };
+        }
+        State.online = true;
+        if (State.authed && State.profileName && (State.view === 'admin' || State.view === 'budder')) render();
+      }, err => {
+        console.error('Masters listener error:', err);
+        State.online = false;
+        toast('การเชื่อมต่อหลุด — กำลังพยายามใหม่', 'error');
+      });
+  },
+
+  subscribeTickets() {
+    if (this.unsubTickets) this.unsubTickets();
+    this.unsubTickets = this.db.collection('tickets')
+      .onSnapshot(snap => {
+        State.tickets = snap.docs.map(d => d.data())
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        State.online = true;
+        if (State.authed && State.profileName && (State.view === 'admin' || State.view === 'budder')) render();
+      }, err => {
+        console.error('Tickets listener error:', err);
+        State.online = false;
+      });
+  },
+
+  async saveMasters() {
+    try {
+      await this.db.collection('config').doc('masters').set(State.masters);
+      return true;
+    } catch (e) {
+      toast('บันทึก master data ไม่สำเร็จ: ' + e.message, 'error');
+      return false;
+    }
+  },
+
+  async saveTicket(ticket) {
+    try {
+      await this.db.collection('tickets').doc(ticket.id).set(ticket);
+      return true;
+    } catch (e) {
+      toast('บันทึกใบงานไม่สำเร็จ: ' + e.message, 'error');
+      return false;
+    }
+  },
+
+  async loadImages(ticketId) {
+    try {
+      const doc = await this.db.collection('images').doc(ticketId).get();
+      if (doc.exists) return doc.data().images || [];
+    } catch (e) { console.warn('Load images failed:', e); }
+    return [];
+  },
+
+  async saveImages(ticketId, images) {
+    try {
+      if (!images || images.length === 0) {
+        await this.db.collection('images').doc(ticketId).delete().catch(() => {});
+      } else {
+        await this.db.collection('images').doc(ticketId).set({ images });
+      }
+      return true;
+    } catch (e) {
+      toast('บันทึกรูปภาพไม่สำเร็จ — รูปอาจใหญ่เกินไป (1MB/doc)', 'error');
+      return false;
+    }
+  },
+
+  disconnect() {
+    if (this.unsubTickets) { this.unsubTickets(); this.unsubTickets = null; }
+    if (this.unsubMasters) { this.unsubMasters(); this.unsubMasters = null; }
+  }
+};
+
+/* =========================================================
+   UTILS
+   ========================================================= */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+}
+function fmtDateTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return `${fmtDate(ts)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function fmtDuration(ms) {
+  if (ms == null || ms < 0) return '—';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return '< 1 นาที';
+  if (mins < 60) return `${mins} นาที`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  if (hrs < 24) return rem > 0 ? `${hrs} ชม. ${rem} น.` : `${hrs} ชม.`;
+  const days = Math.floor(hrs / 24);
+  const hRem = hrs % 24;
+  return hRem > 0 ? `${days} วัน ${hRem} ชม.` : `${days} วัน`;
+}
+function fmtNumber(n) { if (n == null) return '—'; return Number(n).toLocaleString('en-US'); }
+function fmtBudget(n) { if (!n) return '—'; return `฿${fmtNumber(n)}`; }
+function nowISO() { return new Date().toISOString(); }
+
+function toast(msg, type = 'info') {
+  const root = $('#toast-root');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  root.appendChild(t);
+  setTimeout(() => {
+    t.style.transition = 'opacity .2s';
+    t.style.opacity = '0';
+    setTimeout(() => t.remove(), 200);
+  }, 2800);
+}
+
+function showModal(html) {
+  const root = $('#modal-root');
+  root.innerHTML = `<div class="modal-backdrop" data-close="1"><div class="modal" onclick="event.stopPropagation()">${html}</div></div>`;
+  root.firstChild.addEventListener('click', (e) => { if (e.target.dataset.close === '1') closeModal(); });
+}
+function closeModal() { $('#modal-root').innerHTML = ''; }
+
+async function compressImage(file, maxWidth = 1280, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) { reject(new Error('ไฟล์ไม่ใช่รูปภาพ')); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('โหลดรูปไม่สำเร็จ'));
+      img.onload = () => {
+        const scale = Math.min(maxWidth / img.width, 1);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function generateTicketId(uniPrefix) {
+  if (!uniPrefix) uniPrefix = 'XX';
+  const c = State.masters.counters[uniPrefix] || 0;
+  const next = c + 1;
+  State.masters.counters[uniPrefix] = next;
+  return `PB-${uniPrefix}-${String(next).padStart(3, '0')}`;
+}
+
+function slaLevel(elapsed, target) {
+  if (elapsed == null || target == null) return null;
+  const ratio = elapsed / target;
+  if (ratio < 0.8) return 'good';
+  if (ratio < 1.0) return 'warning';
+  return 'danger';
+}
+
+function ongoingTime(t, now = Date.now()) {
+  if (AVAILABLE_STATUSES.includes(t.status)) {
+    return { phase: 'waiting_accept', elapsed: now - new Date(t.createdAt).getTime(), target: SLA.acceptWithin };
+  }
+  if (t.status === 'accepted') {
+    return { phase: 'waiting_close', elapsed: now - new Date(t.acceptedAt).getTime(), target: SLA.closeWithin };
+  }
+  return null;
+}
+
+function ticketMetrics(t) {
+  const m = {};
+  if (t.customerLastContactAt && t.createdAt) m.adminOpenMs = new Date(t.createdAt) - new Date(t.customerLastContactAt);
+  if (t.createdAt && t.acceptedAt) m.waitAcceptMs = new Date(t.acceptedAt) - new Date(t.createdAt);
+  if (t.acceptedAt && t.closedAt) m.execCloseMs = new Date(t.closedAt) - new Date(t.acceptedAt);
+  if (t.createdAt && t.closedAt) m.totalMs = new Date(t.closedAt) - new Date(t.createdAt);
+  return m;
+}
+
+function isWithinSLA(elapsed, target) { return elapsed != null && target != null && elapsed <= target; }
+
+/* =========================================================
+   AUTH
+   ========================================================= */
+function tryLogin(user, pass) {
+  if (user === CREDENTIALS.admin.user && pass === CREDENTIALS.admin.pass) {
+    State.authed = true; State.role = 'admin';
+    State.view = 'admin'; State.subView = 'tickets';
+    return true;
+  }
+  if (user === CREDENTIALS.budder.user && pass === CREDENTIALS.budder.pass) {
+    State.authed = true; State.role = 'budder';
+    State.view = 'budder'; State.subView = 'available';
+    return true;
+  }
+  return false;
+}
+function logout() {
+  State.authed = false; State.role = null; State.profileName = null;
+  State.view = State.firebaseReady ? 'login' : 'setup';
+  State.subView = null;
+  if (State.timerInterval) { clearInterval(State.timerInterval); State.timerInterval = null; }
+  try { localStorage.removeItem(LS_KEY_PROFILE); } catch (e) {}
+  ChartRegistry.destroyAll();
+  render();
+}
+
+/* =========================================================
+   VIEWS — SETUP / LOGIN / PROFILE
+   ========================================================= */
+function viewFirebaseSetup() {
+  return `
+    <div class="login-wrap">
+      <div class="login-card wide">
+        <div class="login-logo">P</div>
+        <h1 class="login-title">ตั้งค่า Cloud Backend</h1>
+        <p class="login-subtitle">เชื่อมต่อกับ Firebase Firestore (real-time sync ทุกเครื่อง)</p>
+        <div class="setup-steps">
+          <strong>วิธีตั้งค่า (ใช้เวลา ~5 นาที):</strong>
+          <ol>
+            <li>ไป <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a> ล็อกอินด้วย Google</li>
+            <li>กด <strong>Add project</strong> ตั้งชื่อ เช่น "propertybuddy"</li>
+            <li>ในหน้า project กดไอคอน <strong>Web (&lt;/&gt;)</strong> เพื่อ register web app</li>
+            <li>ก๊อปปี้ <code>firebaseConfig</code> object ที่ Firebase แสดงให้</li>
+            <li>เปิด <strong>Build → Firestore Database → Create database</strong> เลือก <em>Start in test mode</em></li>
+            <li>วาง config ในช่องด้านล่าง แล้วกด "เชื่อมต่อ"</li>
+          </ol>
+        </div>
+        <form class="login-form" id="firebase-form">
+          <div class="field">
+            <label class="field-label">Firebase Config (วาง JSON หรือ JS object)</label>
+            <textarea class="textarea mono" id="firebase-config" rows="10" required placeholder='{
+  "apiKey": "AIza...",
+  "authDomain": "your-app.firebaseapp.com",
+  "projectId": "your-app",
+  "storageBucket": "your-app.appspot.com",
+  "messagingSenderId": "...",
+  "appId": "..."
+}'></textarea>
+          </div>
+          <div id="firebase-err"></div>
+          <button type="submit" class="btn btn-primary btn-block btn-lg">เชื่อมต่อ Firebase</button>
+        </form>
+        <div class="login-hint">
+          ⚠️ <strong>Production Note:</strong> Test mode allows reads/writes ทั้งหมด<br>
+          สำหรับใช้งานจริงแนะนำเพิ่ม Firestore Security Rules ภายหลัง
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function viewLogin() {
+  return `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">P</div>
+        <h1 class="login-title">Property Buddy</h1>
+        <p class="login-subtitle">Certified Budder Management</p>
+        <form class="login-form" id="login-form" autocomplete="off">
+          <div class="field">
+            <label class="field-label">Username</label>
+            <input class="input" type="text" id="login-user" autocomplete="off" required>
+          </div>
+          <div class="field">
+            <label class="field-label">Password</label>
+            <input class="input" type="password" id="login-pass" autocomplete="off" required>
+          </div>
+          <div id="login-err"></div>
+          <button type="submit" class="btn btn-primary btn-block btn-lg">เข้าสู่ระบบ</button>
+        </form>
+        <div class="login-hint">
+          Admin / Certified Budder<br>
+          ${State.online ? '<span style="color: var(--status-closed);">🟢 Cloud connected</span>' : '<span style="color: var(--sla-warning);">🟡 Offline</span>'}
+          · <a href="#" onclick="resetFirebaseConfig(); return false;">เปลี่ยน Firebase config</a>
+        </div>
+      </div>
+    </div>`;
+}
+
+function viewProfileSelect() {
+  const list = State.role === 'admin' ? State.masters.admins : State.masters.budders;
+  const label = State.role === 'admin' ? 'Admin' : 'Certified Budder';
+  if (!list || list.length === 0) {
+    return `
+      <div class="login-wrap">
+        <div class="login-card">
+          <div class="login-logo">${State.role === 'admin' ? 'A' : 'B'}</div>
+          <h1 class="login-title">ยังไม่มีรายชื่อ ${label}</h1>
+          <p class="login-subtitle text-mute">
+            ${State.role === 'admin'
+              ? 'เพิ่มรายชื่อ Admin คนแรกเพื่อเริ่มใช้ระบบ'
+              : 'กรุณาให้ Admin เพิ่มชื่อ Certified Budder ก่อน'}
+          </p>
+          ${State.role === 'admin' ? `
+            <button class="btn btn-primary btn-block mt-3" onclick="firstTimeAdminSetup()">+ เพิ่ม Admin คนแรก</button>
+          ` : ''}
+          <button class="btn btn-secondary btn-block mt-2" onclick="logout()">ออกจากระบบ</button>
+        </div>
+      </div>`;
+  }
+  const opts = list.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  return `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">${State.role === 'admin' ? 'A' : 'B'}</div>
+        <h1 class="login-title">เลือกชื่อของคุณ</h1>
+        <p class="login-subtitle">เพื่อระบบจะบันทึก performance ของคุณ</p>
+        <form class="login-form" id="profile-form">
+          <div class="field">
+            <label class="field-label">${label}</label>
+            <select class="select" id="profile-name" required>
+              <option value="">-- เลือกชื่อ --</option>${opts}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block btn-lg">ยืนยัน</button>
+          <button type="button" class="btn btn-ghost btn-block" onclick="logout()">ออกจากระบบ</button>
+        </form>
+      </div>
+    </div>`;
+}
+
+/* =========================================================
+   APP SHELL
+   ========================================================= */
+function viewAppShell(inner) {
+  const isAdmin = State.role === 'admin';
+  const tabs = isAdmin ? [
+    { key: 'tickets', label: 'ใบงานทั้งหมด' },
+    { key: 'create', label: '+ เปิดใบงาน' },
+    { key: 'masters', label: 'Master Data' },
+    { key: 'reports', label: 'รายงาน' }
+  ] : [
+    { key: 'available', label: 'งานที่รอรับ' },
+    { key: 'mine', label: 'งานของฉัน' },
+    { key: 'closed', label: 'งานที่ปิดแล้ว' }
+  ];
+  const tabsHtml = tabs.map(t => {
+    let count = '';
+    if (t.key === 'available') {
+      const n = State.tickets.filter(x => AVAILABLE_STATUSES.includes(x.status)).length;
+      if (n > 0) count = `<span class="badge-count">${n}</span>`;
+    } else if (t.key === 'mine') {
+      const n = State.tickets.filter(x => x.status === 'accepted' && x.budderName === State.profileName).length;
+      if (n > 0) count = `<span class="badge-count">${n}</span>`;
+    } else if (t.key === 'tickets') {
+      const n = State.tickets.filter(x => x.status !== 'closed' && x.status !== 'cancelled').length;
+      if (n > 0) count = `<span class="badge-count">${n}</span>`;
+    }
+    return `<button class="nav-tab ${State.subView === t.key ? 'active' : ''}" data-tab="${t.key}">${t.label}${count}</button>`;
+  }).join('');
+  const connBadge = State.online
+    ? `<span class="connection-indicator online"><span class="dot"></span>Live</span>`
+    : `<span class="connection-indicator"><span class="dot"></span>Syncing</span>`;
+  return `
+    <div class="app-shell">
+      <header class="header">
+        <div class="header-brand">
+          <div class="header-logo">P</div>
+          <div>
+            <div class="header-title">Property Buddy</div>
+            <div class="header-subtitle">Certified Budder Management</div>
+          </div>
+        </div>
+        <div class="header-actions">
+          ${connBadge}
+          <button class="user-pill" id="user-pill">
+            <span>${escapeHtml(State.profileName || '')}</span>
+            <span style="opacity:.7">·</span>
+            <span>${isAdmin ? 'Admin' : 'Budder'}</span>
+          </button>
+        </div>
+      </header>
+      <nav class="nav-tabs" id="nav-tabs">${tabsHtml}</nav>
+      <main class="main">${inner}</main>
+    </div>`;
+}
+
+/* =========================================================
+   ADMIN VIEWS
+   ========================================================= */
+function viewAdminTickets() {
+  const tickets = filteredTickets();
+  return `${renderFilterToolbar()}${renderTicketsTable(tickets)}`;
+}
+
+function renderFilterToolbar() {
+  const f = State.filters;
+  const uniOpts = State.masters.universities.map(u =>
+    `<option value="${escapeHtml(u.prefix)}" ${f.universityPrefix === u.prefix ? 'selected' : ''}>${escapeHtml(u.name)}</option>`
+  ).join('');
+  const adminOpts = State.masters.admins.map(a =>
+    `<option value="${escapeHtml(a)}" ${f.adminName === a ? 'selected' : ''}>${escapeHtml(a)}</option>`
+  ).join('');
+  const budderOpts = State.masters.budders.map(b =>
+    `<option value="${escapeHtml(b)}" ${f.budderName === b ? 'selected' : ''}>${escapeHtml(b)}</option>`
+  ).join('');
+  const statusOpts = Object.entries(STATUS).map(([k, v]) =>
+    `<option value="${k}" ${f.status === k ? 'selected' : ''}>${escapeHtml(v)}</option>`
+  ).join('');
+  return `
+    <div class="toolbar">
+      <div class="search-input">
+        <input class="input" type="text" id="f-search" placeholder="ค้นหา รหัสใบงาน, LINE ID, ชื่อ Buddy..." value="${escapeHtml(f.search)}">
+      </div>
+      <select class="select" id="f-status"><option value="">ทุกสถานะ</option>${statusOpts}</select>
+      <select class="select" id="f-uni"><option value="">ทุกมหาลัย</option>${uniOpts}</select>
+      <select class="select" id="f-admin"><option value="">ทุก Admin</option>${adminOpts}</select>
+      <select class="select" id="f-budder"><option value="">ทุก Budder</option>${budderOpts}</select>
+      <button class="btn btn-ghost btn-sm" id="f-clear">ล้างตัวกรอง</button>
+    </div>`;
+}
+
+function filteredTickets() {
+  const f = State.filters;
+  let list = State.tickets.slice();
+  if (f.search) {
+    const s = f.search.toLowerCase();
+    list = list.filter(t =>
+      t.id.toLowerCase().includes(s) ||
+      (t.buddyLineId || '').toLowerCase().includes(s) ||
+      (t.buddyNickname || '').toLowerCase().includes(s) ||
+      (t.buddyPhone || '').toLowerCase().includes(s)
+    );
+  }
+  if (f.status) list = list.filter(t => t.status === f.status);
+  if (f.universityPrefix) list = list.filter(t => t.universityPrefix === f.universityPrefix);
+  if (f.adminName) list = list.filter(t => t.adminName === f.adminName);
+  if (f.budderName) list = list.filter(t => t.budderName === f.budderName);
+  if (f.dateFrom) { const d = new Date(f.dateFrom).getTime(); list = list.filter(t => new Date(t.createdAt).getTime() >= d); }
+  if (f.dateTo) { const d = new Date(f.dateTo).getTime() + 86400000; list = list.filter(t => new Date(t.createdAt).getTime() <= d); }
+  list.sort((a, b) => {
+    const aOpen = a.status !== 'closed' && a.status !== 'cancelled';
+    const bOpen = b.status !== 'closed' && b.status !== 'cancelled';
+    if (aOpen !== bOpen) return aOpen ? -1 : 1;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+  return list;
+}
+
+function renderTicketsTable(tickets) {
+  if (tickets.length === 0) {
+    return `<div class="card"><div class="empty">
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">ไม่พบใบงาน</div>
+      <div class="empty-desc">ลองล้างตัวกรอง หรือเปิดใบงานใหม่</div>
+    </div></div>`;
+  }
+  const rows = tickets.map(t => {
+    const og = ongoingTime(t);
+    let timeCell = '—';
+    if (og) {
+      const lvl = slaLevel(og.elapsed, og.target);
+      timeCell = `<span class="cell-mono sla-${lvl}">${fmtDuration(og.elapsed)}</span>`;
+    } else if (t.status === 'closed') {
+      const m = ticketMetrics(t);
+      timeCell = `<span class="cell-mono text-mute">${fmtDuration(m.totalMs)}</span>`;
+    } else if (t.status === 'cancelled') {
+      timeCell = `<span class="text-mute text-tiny">ยกเลิก</span>`;
+    }
+    return `
+      <tr class="clickable" data-tid="${escapeHtml(t.id)}">
+        <td><span class="ticket-id">${escapeHtml(t.id)}</span></td>
+        <td><span class="badge status-${t.status}"><span class="badge-dot"></span>${STATUS[t.status]}</span></td>
+        <td>${escapeHtml(t.buddyNickname || t.buddyLineId || '—')}</td>
+        <td>${escapeHtml(t.universityName || '—')}</td>
+        <td>${escapeHtml(t.adminName || '—')}</td>
+        <td>${escapeHtml(t.budderName || '—')}</td>
+        <td>${timeCell}</td>
+        <td class="cell-mono text-mute text-tiny">${fmtDateTime(t.createdAt)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table class="table">
+          <thead><tr>
+            <th>รหัสใบงาน</th><th>สถานะ</th><th>Buddy</th><th>มหาลัย</th>
+            <th>Admin</th><th>Budder</th><th>เวลา</th><th>เปิดเมื่อ</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function viewAdminCreate(editingId = null) {
+  const editing = editingId ? State.tickets.find(t => t.id === editingId) : null;
+  const adminOpts = State.masters.admins.map(a =>
+    `<option value="${escapeHtml(a)}" ${(editing?.adminName || State.profileName) === a ? 'selected' : ''}>${escapeHtml(a)}</option>`
+  ).join('');
+  const uniOpts = State.masters.universities.map(u =>
+    `<option value="${escapeHtml(u.prefix)}" ${editing?.universityPrefix === u.prefix ? 'selected' : ''}>${escapeHtml(u.name)} (${escapeHtml(u.prefix)})</option>`
+  ).join('');
+  const prio = editing?.priority || 'normal';
+  const prioOpts = Object.entries(PRIORITY).map(([k, v]) =>
+    `<option value="${k}" ${prio === k ? 'selected' : ''}>${escapeHtml(v)}</option>`
+  ).join('');
+  const lastTimeVal = editing?.customerLastContactAt
+    ? new Date(editing.customerLastContactAt).toISOString().slice(0, 16)
+    : new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">${editing ? `แก้ไขใบงาน — ${editing.id}` : 'เปิดใบงานใหม่ (Buddy Request)'}</div>
+      </div>
+      <div class="card-body">
+        <form id="create-form">
+          <input type="hidden" id="edit-id" value="${editing ? editing.id : ''}">
+
+          <div class="detail-section-title">ข้อมูล Admin</div>
+          <div class="form-grid mb-3">
+            <div class="field">
+              <label class="field-label">ชื่อ Admin (เจ้าของ case) <span class="req">*</span></label>
+              <select class="select" id="adminName" required>
+                <option value="">-- เลือก --</option>${adminOpts}
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label">เวลาที่ Buddy ติดต่อล่าสุด <span class="req">*</span></label>
+              <input class="input" type="datetime-local" id="customerLastContact" value="${lastTimeVal}" required>
+            </div>
+          </div>
+
+          <div class="detail-section-title">ข้อมูล Buddy (ลูกค้า)</div>
+          <div class="form-grid mb-3">
+            <div class="field">
+              <label class="field-label">LINE ID <span class="req">*</span></label>
+              <input class="input" type="text" id="buddyLineId" value="${escapeHtml(editing?.buddyLineId || '')}" required>
+            </div>
+            <div class="field">
+              <label class="field-label">ชื่อเล่น <span class="req">*</span></label>
+              <input class="input" type="text" id="buddyNickname" value="${escapeHtml(editing?.buddyNickname || '')}" required>
+            </div>
+            <div class="field">
+              <label class="field-label">เบอร์โทร</label>
+              <input class="input" type="text" id="buddyPhone" value="${escapeHtml(editing?.buddyPhone || '')}">
+            </div>
+            <div class="field">
+              <label class="field-label">Priority</label>
+              <select class="select" id="priority">${prioOpts}</select>
+            </div>
+          </div>
+
+          <div class="detail-section-title">ความต้องการ</div>
+          <div class="form-grid mb-3">
+            <div class="field">
+              <label class="field-label">มหาวิทยาลัย <span class="req">*</span></label>
+              <select class="select" id="universityPrefix" required>
+                <option value="">-- เลือก --</option>${uniOpts}
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label">งบประมาณ (บาท/เดือน)</label>
+              <input class="input" type="number" id="budget" value="${editing?.budget || ''}" placeholder="เช่น 6000">
+            </div>
+            <div class="field">
+              <label class="field-label">หอ/คอนโดที่ระบุ (ถ้ามี)</label>
+              <input class="input" type="text" id="dormName" value="${escapeHtml(editing?.dormName || '')}">
+            </div>
+            <div class="field">
+              <label class="field-label">วันที่ต้องการย้ายเข้า</label>
+              <input class="input" type="date" id="moveInDate" value="${editing?.moveInDate || ''}">
+            </div>
+            <div class="field full">
+              <label class="field-label">Special Request</label>
+              <textarea class="textarea" id="specialRequest" placeholder="เช่น ใกล้ประตูหลัก, อนุญาตสัตว์เลี้ยง...">${escapeHtml(editing?.specialRequest || '')}</textarea>
+            </div>
+            <div class="field full">
+              <label class="field-label">Notes (บันทึกภายในทีม)</label>
+              <textarea class="textarea" id="notes" placeholder="โน้ตสำหรับทีม...">${escapeHtml(editing?.notes || '')}</textarea>
+            </div>
+          </div>
+
+          <div class="detail-section-title">รูปแคปแชท (สูงสุด 3 รูป)</div>
+          <div class="field mb-3">
+            <label class="image-drop" for="image-input">
+              <input type="file" id="image-input" accept="image/jpeg,image/png,image/webp" multiple>
+              <div class="image-drop-text">📷 คลิกเพื่อแนบรูป</div>
+              <div class="image-drop-hint">รองรับ JPEG, PNG, WebP — รูปจะถูกปรับขนาดอัตโนมัติ</div>
+            </label>
+            <div class="image-preview-grid" id="image-preview"></div>
+          </div>
+
+          <div class="row" style="justify-content: flex-end; gap: 10px;">
+            <button type="button" class="btn btn-ghost" id="create-cancel">ยกเลิก</button>
+            <button type="submit" class="btn btn-primary" id="create-submit">${editing ? 'บันทึกการแก้ไข' : 'เปิดใบงาน'}</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+}
+
+function viewAdminMasters() {
+  const sub = State.subSubView || 'admins';
+  let body = '';
+  if (sub === 'admins') body = renderListEditor('admins', 'รายชื่อ Admin', State.masters.admins);
+  else if (sub === 'budders') body = renderListEditor('budders', 'รายชื่อ Certified Budder', State.masters.budders);
+  else if (sub === 'universities') body = renderUniversityEditor();
+  return `
+    <div class="subtabs">
+      <button class="subtab ${sub === 'admins' ? 'active' : ''}" data-sub="admins">Admins (${State.masters.admins.length})</button>
+      <button class="subtab ${sub === 'budders' ? 'active' : ''}" data-sub="budders">Certified Budders (${State.masters.budders.length})</button>
+      <button class="subtab ${sub === 'universities' ? 'active' : ''}" data-sub="universities">มหาวิทยาลัย (${State.masters.universities.length})</button>
+    </div>
+    ${body}`;
+}
+
+function renderListEditor(kind, title, items) {
+  const rows = items.map((name, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(name)}</td>
+      <td style="text-align: right;">
+        <button class="btn btn-ghost btn-sm" onclick="removeListItem('${kind}', ${idx})">ลบ</button>
+      </td>
+    </tr>`).join('');
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">${title}</div></div>
+      <div class="card-body">
+        <form class="row mb-3" onsubmit="event.preventDefault(); addListItem('${kind}');">
+          <input class="input" type="text" id="new-${kind}" placeholder="ชื่อใหม่..." style="flex: 1;">
+          <button type="submit" class="btn btn-primary">+ เพิ่ม</button>
+        </form>
+        ${items.length === 0 ? `
+          <div class="empty"><div class="empty-icon">👤</div><div class="empty-title">ยังไม่มีรายชื่อ</div></div>
+        ` : `
+          <div class="table-scroll">
+            <table class="table" style="min-width: auto;">
+              <thead><tr><th style="width:50px;">#</th><th>ชื่อ</th><th></th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`}
+      </div>
+    </div>`;
+}
+
+function renderUniversityEditor() {
+  const rows = State.masters.universities.map((u, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(u.name)}</td>
+      <td><span class="ticket-id">${escapeHtml(u.prefix)}</span></td>
+      <td class="cell-mono text-mute">${State.masters.counters[u.prefix] || 0}</td>
+      <td style="text-align: right;">
+        <button class="btn btn-ghost btn-sm" onclick="removeUniversity(${idx})">ลบ</button>
+      </td>
+    </tr>`).join('');
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">รายชื่อมหาวิทยาลัย</div></div>
+      <div class="card-body">
+        <form class="row mb-3" onsubmit="event.preventDefault(); addUniversity();" style="align-items: flex-end;">
+          <div class="field" style="flex: 2;">
+            <label class="field-label">ชื่อมหาวิทยาลัย</label>
+            <input class="input" type="text" id="new-uni-name" placeholder="เช่น จุฬาลงกรณ์มหาวิทยาลัย">
+          </div>
+          <div class="field" style="flex: 1; min-width: 100px;">
+            <label class="field-label">Prefix (2-4 ตัวอักษร)</label>
+            <input class="input" type="text" id="new-uni-prefix" placeholder="เช่น CU" maxlength="4" style="text-transform: uppercase;">
+          </div>
+          <button type="submit" class="btn btn-primary">+ เพิ่ม</button>
+        </form>
+        ${State.masters.universities.length === 0 ? `
+          <div class="empty">
+            <div class="empty-icon">🎓</div>
+            <div class="empty-title">ยังไม่มีรายชื่อมหาวิทยาลัย</div>
+            <div class="empty-desc">Prefix จะใช้สร้างรหัสใบงาน เช่น PB-CU-001</div>
+          </div>
+        ` : `
+          <div class="table-scroll">
+            <table class="table" style="min-width: auto;">
+              <thead><tr><th style="width:50px;">#</th><th>ชื่อ</th><th>Prefix</th><th>ใบงานล่าสุด</th><th></th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`}
+      </div>
+    </div>`;
+}
+
+/* =========================================================
+   REPORTS — with Chart.js charts
+   ========================================================= */
+function viewAdminReports() {
+  if (!State.reportFrom) {
+    const d = new Date(); d.setDate(d.getDate() - 30);
+    State.reportFrom = d.toISOString().slice(0, 10);
+  }
+  if (!State.reportTo) State.reportTo = new Date().toISOString().slice(0, 10);
+  const from = new Date(State.reportFrom).getTime();
+  const to = new Date(State.reportTo).getTime() + 86400000;
+  const inRange = State.tickets.filter(t => {
+    const c = new Date(t.createdAt).getTime();
+    return c >= from && c <= to;
+  });
+
+  // KPIs
+  const totalOpened = inRange.length;
+  const closed = inRange.filter(t => t.status === 'closed');
+  const cancelled = inRange.filter(t => t.status === 'cancelled');
+  const open = inRange.filter(t => t.status !== 'closed' && t.status !== 'cancelled');
+
+  const slaOpen = inRange.filter(t => t.customerLastContactAt && t.createdAt);
+  const slaOpenHit = slaOpen.filter(t => isWithinSLA(new Date(t.createdAt) - new Date(t.customerLastContactAt), SLA.openWithin));
+  const slaAccept = inRange.filter(t => t.acceptedAt);
+  const slaAcceptHit = slaAccept.filter(t => isWithinSLA(new Date(t.acceptedAt) - new Date(t.createdAt), SLA.acceptWithin));
+  const slaClose = inRange.filter(t => t.acceptedAt && t.closedAt);
+  const slaCloseHit = slaClose.filter(t => isWithinSLA(new Date(t.closedAt) - new Date(t.acceptedAt), SLA.closeWithin));
+
+  const slaOpenPct = slaOpen.length ? Math.round(slaOpenHit.length / slaOpen.length * 100) : 0;
+  const slaAcceptPct = slaAccept.length ? Math.round(slaAcceptHit.length / slaAccept.length * 100) : 0;
+  const slaClosePct = slaClose.length ? Math.round(slaCloseHit.length / slaClose.length * 100) : 0;
+
+  // Admin / Budder stats
+  const adminStats = {};
+  State.masters.admins.forEach(a => { adminStats[a] = { opened: 0, openMsSum: 0, openMsCount: 0 }; });
+  inRange.forEach(t => {
+    if (!t.adminName) return;
+    if (!adminStats[t.adminName]) adminStats[t.adminName] = { opened: 0, openMsSum: 0, openMsCount: 0 };
+    adminStats[t.adminName].opened++;
+    if (t.customerLastContactAt) {
+      adminStats[t.adminName].openMsSum += new Date(t.createdAt) - new Date(t.customerLastContactAt);
+      adminStats[t.adminName].openMsCount++;
+    }
+  });
+
+  const budderStats = {};
+  State.masters.budders.forEach(b => { budderStats[b] = { accepted: 0, closed: 0, dorms: 0, acceptMsSum: 0, acceptMsCount: 0, closeMsSum: 0, closeMsCount: 0 }; });
+  inRange.forEach(t => {
+    if (!t.budderName) return;
+    if (!budderStats[t.budderName]) budderStats[t.budderName] = { accepted: 0, closed: 0, dorms: 0, acceptMsSum: 0, acceptMsCount: 0, closeMsSum: 0, closeMsCount: 0 };
+    if (t.acceptedAt) {
+      budderStats[t.budderName].accepted++;
+      budderStats[t.budderName].acceptMsSum += new Date(t.acceptedAt) - new Date(t.createdAt);
+      budderStats[t.budderName].acceptMsCount++;
+    }
+    if (t.status === 'closed') {
+      budderStats[t.budderName].closed++;
+      budderStats[t.budderName].dorms += (t.dormsSent || []).length;
+      if (t.closedAt) {
+        budderStats[t.budderName].closeMsSum += new Date(t.closedAt) - new Date(t.acceptedAt);
+        budderStats[t.budderName].closeMsCount++;
+      }
+    }
+  });
+
+  return `
+    <div class="row-between mb-3">
+      <div class="row">
+        <div class="field">
+          <label class="field-label">จากวันที่</label>
+          <input class="input" type="date" id="rep-from" value="${State.reportFrom}">
+        </div>
+        <div class="field">
+          <label class="field-label">ถึงวันที่</label>
+          <input class="input" type="date" id="rep-to" value="${State.reportTo}">
+        </div>
+      </div>
+      <button class="btn btn-accent" id="export-excel">📊 Export Excel</button>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-accent">
+        <div class="kpi-label">เปิดใบงานทั้งหมด</div>
+        <div class="kpi-value">${totalOpened}</div>
+        <div class="kpi-sub">${closed.length} ปิด · ${open.length} ค้าง · ${cancelled.length} ยกเลิก</div>
+      </div>
+      <div class="kpi-card ${slaOpenPct >= 80 ? 'kpi-good' : slaOpenPct >= 60 ? 'kpi-warning' : 'kpi-danger'}">
+        <div class="kpi-label">SLA Admin (เปิดใน 1 ชม.)</div>
+        <div class="kpi-value">${slaOpenPct}%</div>
+        <div class="kpi-sub">${slaOpenHit.length} / ${slaOpen.length} ใบ</div>
+      </div>
+      <div class="kpi-card ${slaAcceptPct >= 80 ? 'kpi-good' : slaAcceptPct >= 60 ? 'kpi-warning' : 'kpi-danger'}">
+        <div class="kpi-label">SLA รับงาน (รับใน 1 ชม.)</div>
+        <div class="kpi-value">${slaAcceptPct}%</div>
+        <div class="kpi-sub">${slaAcceptHit.length} / ${slaAccept.length} ใบ</div>
+      </div>
+      <div class="kpi-card ${slaClosePct >= 80 ? 'kpi-good' : slaClosePct >= 60 ? 'kpi-warning' : 'kpi-danger'}">
+        <div class="kpi-label">SLA ปิดงาน (ปิดใน 2 ชม.)</div>
+        <div class="kpi-value">${slaClosePct}%</div>
+        <div class="kpi-sub">${slaCloseHit.length} / ${slaClose.length} ใบ</div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="card chart-card">
+        <div class="card-title">📊 Status Distribution</div>
+        <div class="chart-container"><canvas id="chart-status"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <div class="card-title">⚡ SLA Performance</div>
+        <div class="chart-container"><canvas id="chart-sla"></canvas></div>
+      </div>
+      <div class="card chart-card" style="grid-column: 1 / -1;">
+        <div class="card-title">📈 เปิด vs ปิด รายวัน</div>
+        <div class="chart-container tall"><canvas id="chart-trend"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <div class="card-title">🎓 University Workload</div>
+        <div class="chart-container"><canvas id="chart-uni"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <div class="card-title">🏆 Budder Workload</div>
+        <div class="chart-container"><canvas id="chart-budder"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Admin Performance</div></div>
+        <div class="card-body">${renderAdminPerf(adminStats)}</div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">🏆 Certified Budder Ranking</div></div>
+        <div class="card-body">${renderBudderRanking(budderStats)}</div>
+      </div>
+    </div>`;
+}
+
+function renderAdminPerf(stats) {
+  const list = Object.entries(stats).filter(([_, s]) => s.opened > 0).sort((a, b) => b[1].opened - a[1].opened);
+  if (list.length === 0) return `<div class="empty"><div class="empty-title text-small">ยังไม่มีข้อมูล</div></div>`;
+  return `
+    <div class="table-scroll">
+    <table class="table" style="min-width: auto;">
+      <thead><tr><th>Admin</th><th>เปิดใบงาน</th><th>เวลาเฉลี่ย (จาก contact)</th></tr></thead>
+      <tbody>
+        ${list.map(([name, s]) => `
+          <tr>
+            <td>${escapeHtml(name)}</td>
+            <td class="cell-mono">${s.opened}</td>
+            <td class="cell-mono">${s.openMsCount ? fmtDuration(s.openMsSum / s.openMsCount) : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function renderBudderRanking(stats) {
+  const list = Object.entries(stats).filter(([_, s]) => s.accepted > 0 || s.closed > 0)
+    .sort((a, b) => {
+      if (b[1].closed !== a[1].closed) return b[1].closed - a[1].closed;
+      if (b[1].dorms !== a[1].dorms) return b[1].dorms - a[1].dorms;
+      const aAvg = a[1].closeMsCount ? a[1].closeMsSum / a[1].closeMsCount : Infinity;
+      const bAvg = b[1].closeMsCount ? b[1].closeMsSum / b[1].closeMsCount : Infinity;
+      return aAvg - bAvg;
+    });
+  if (list.length === 0) return `<div class="empty"><div class="empty-title text-small">ยังไม่มีข้อมูล</div></div>`;
+  const medals = ['🥇', '🥈', '🥉'];
+  return `
+    <div class="table-scroll">
+    <table class="table" style="min-width: auto;">
+      <thead><tr><th>#</th><th>Budder</th><th>ปิด</th><th>หอที่ส่ง</th><th>เวลาปิดเฉลี่ย</th></tr></thead>
+      <tbody>
+        ${list.map(([name, s], i) => `
+          <tr>
+            <td>${medals[i] || (i+1)}</td>
+            <td>${escapeHtml(name)}</td>
+            <td class="cell-mono">${s.closed}</td>
+            <td class="cell-mono">${s.dorms}</td>
+            <td class="cell-mono">${s.closeMsCount ? fmtDuration(s.closeMsSum / s.closeMsCount) : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+// ----- Render Charts (called after DOM is in place) -----
+function renderReportsCharts() {
+  if (typeof Chart === 'undefined') return;
+  const from = new Date(State.reportFrom).getTime();
+  const to = new Date(State.reportTo).getTime() + 86400000;
+  const inRange = State.tickets.filter(t => {
+    const c = new Date(t.createdAt).getTime();
+    return c >= from && c <= to;
+  });
+
+  Chart.defaults.font.family = "'Prompt', sans-serif";
+  Chart.defaults.color = '#6B7280';
+  Chart.defaults.borderColor = '#E5E7EB';
+
+  // 1. Status Donut
+  const statusCounts = {};
+  Object.keys(STATUS).forEach(k => statusCounts[k] = 0);
+  inRange.forEach(t => { statusCounts[t.status] = (statusCounts[t.status] || 0) + 1; });
+  const statusCtx = $('#chart-status');
+  if (statusCtx) {
+    const labels = Object.keys(STATUS).map(k => STATUS[k]);
+    const data = Object.keys(STATUS).map(k => statusCounts[k]);
+    const colors = Object.keys(STATUS).map(k => STATUS_COLORS[k]);
+    ChartRegistry.create('status', statusCtx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 12 } } },
+          tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.parsed} ใบ` } }
+        }
+      }
+    });
+  }
+
+  // 2. SLA Horizontal Bars
+  const slaOpen = inRange.filter(t => t.customerLastContactAt && t.createdAt);
+  const slaOpenHit = slaOpen.filter(t => isWithinSLA(new Date(t.createdAt) - new Date(t.customerLastContactAt), SLA.openWithin));
+  const slaAccept = inRange.filter(t => t.acceptedAt);
+  const slaAcceptHit = slaAccept.filter(t => isWithinSLA(new Date(t.acceptedAt) - new Date(t.createdAt), SLA.acceptWithin));
+  const slaClose = inRange.filter(t => t.acceptedAt && t.closedAt);
+  const slaCloseHit = slaClose.filter(t => isWithinSLA(new Date(t.closedAt) - new Date(t.acceptedAt), SLA.closeWithin));
+  const slaCtx = $('#chart-sla');
+  if (slaCtx) {
+    const pct = [
+      slaOpen.length ? Math.round(slaOpenHit.length / slaOpen.length * 100) : 0,
+      slaAccept.length ? Math.round(slaAcceptHit.length / slaAccept.length * 100) : 0,
+      slaClose.length ? Math.round(slaCloseHit.length / slaClose.length * 100) : 0
+    ];
+    ChartRegistry.create('sla', slaCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Admin เปิดใน 1 ชม.', 'รับงานใน 1 ชม.', 'ปิดงานใน 2 ชม.'],
+        datasets: [{
+          label: '% Hit Rate',
+          data: pct,
+          backgroundColor: pct.map(p => p >= 80 ? '#10B981' : p >= 60 ? '#F59E0B' : '#EF4444'),
+          borderRadius: 6,
+          barThickness: 28
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` ${c.parsed.x}%` } } },
+        scales: {
+          x: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } },
+          y: { ticks: { font: { size: 12 } } }
+        }
+      }
+    });
+  }
+
+  // 3. Daily Trend Line
+  const dayMap = {};
+  inRange.forEach(t => {
+    const d = new Date(t.createdAt).toISOString().slice(0, 10);
+    if (!dayMap[d]) dayMap[d] = { opened: 0, closed: 0 };
+    dayMap[d].opened++;
+  });
+  inRange.filter(t => t.closedAt).forEach(t => {
+    const d = new Date(t.closedAt).toISOString().slice(0, 10);
+    if (!dayMap[d]) dayMap[d] = { opened: 0, closed: 0 };
+    dayMap[d].closed++;
+  });
+  const days = Object.keys(dayMap).sort();
+  const trendCtx = $('#chart-trend');
+  if (trendCtx && days.length > 0) {
+    ChartRegistry.create('trend', trendCtx, {
+      type: 'line',
+      data: {
+        labels: days.map(d => fmtDate(d + 'T00:00:00')),
+        datasets: [
+          {
+            label: 'เปิดงาน',
+            data: days.map(d => dayMap[d].opened),
+            borderColor: '#6D28D9',
+            backgroundColor: 'rgba(109,40,217,.1)',
+            tension: 0.3, fill: true, borderWidth: 2.5,
+            pointBackgroundColor: '#6D28D9', pointRadius: 4, pointHoverRadius: 6
+          },
+          {
+            label: 'ปิดงาน',
+            data: days.map(d => dayMap[d].closed),
+            borderColor: '#10B981',
+            backgroundColor: 'rgba(16,185,129,.1)',
+            tension: 0.3, fill: true, borderWidth: 2.5,
+            pointBackgroundColor: '#10B981', pointRadius: 4, pointHoverRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'top', align: 'end' } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+  } else if (trendCtx) {
+    trendCtx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">📈</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
+  }
+
+  // 4. University Workload Horizontal Bar
+  const uniCounts = {};
+  inRange.forEach(t => {
+    const k = t.universityName || 'ไม่ระบุ';
+    uniCounts[k] = (uniCounts[k] || 0) + 1;
+  });
+  const uniSorted = Object.entries(uniCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const uniCtx = $('#chart-uni');
+  if (uniCtx && uniSorted.length > 0) {
+    ChartRegistry.create('uni', uniCtx, {
+      type: 'bar',
+      data: {
+        labels: uniSorted.map(([n]) => n),
+        datasets: [{
+          label: 'จำนวนใบงาน',
+          data: uniSorted.map(([_, v]) => v),
+          backgroundColor: '#FACC15',
+          borderRadius: 6,
+          barThickness: 24
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+  } else if (uniCtx) {
+    uniCtx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">🎓</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
+  }
+
+  // 5. Budder Workload (Stacked Bar: accepted, closed, dorms sent)
+  const budderCtx = $('#chart-budder');
+  if (budderCtx) {
+    const budderStats = {};
+    State.masters.budders.forEach(b => { budderStats[b] = { accepted: 0, closed: 0, dorms: 0 }; });
+    inRange.forEach(t => {
+      if (!t.budderName) return;
+      if (!budderStats[t.budderName]) budderStats[t.budderName] = { accepted: 0, closed: 0, dorms: 0 };
+      if (t.acceptedAt) budderStats[t.budderName].accepted++;
+      if (t.status === 'closed') {
+        budderStats[t.budderName].closed++;
+        budderStats[t.budderName].dorms += (t.dormsSent || []).length;
+      }
+    });
+    const names = Object.keys(budderStats).filter(n => budderStats[n].accepted > 0 || budderStats[n].closed > 0);
+    if (names.length > 0) {
+      ChartRegistry.create('budder', budderCtx, {
+        type: 'bar',
+        data: {
+          labels: names,
+          datasets: [
+            { label: 'รับงาน', data: names.map(n => budderStats[n].accepted), backgroundColor: '#0EA5E9', borderRadius: 4 },
+            { label: 'ปิดงาน', data: names.map(n => budderStats[n].closed), backgroundColor: '#10B981', borderRadius: 4 },
+            { label: 'หอที่ส่ง', data: names.map(n => budderStats[n].dorms), backgroundColor: '#FACC15', borderRadius: 4 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', align: 'end' } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+    } else {
+      budderCtx.parentElement.innerHTML = `<div class="empty"><div class="empty-icon">👥</div><div class="empty-title">ยังไม่มีข้อมูล</div></div>`;
+    }
+  }
+}
+
+/* =========================================================
+   BUDDER VIEWS
+   ========================================================= */
+function viewBudderAvailable() {
+  const list = State.tickets
+    .filter(t => AVAILABLE_STATUSES.includes(t.status))
+    .sort((a, b) => {
+      const prioRank = { high: 0, medium: 1, normal: 2 };
+      const pa = prioRank[a.priority] ?? 2;
+      const pb = prioRank[b.priority] ?? 2;
+      if (pa !== pb) return pa - pb;
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+  if (list.length === 0) {
+    return `<div class="card"><div class="empty">
+      <div class="empty-icon">✨</div>
+      <div class="empty-title">ไม่มีงานที่รอรับในตอนนี้</div>
+      <div class="empty-desc">มาเช็คอีกครั้งสักพักครับ</div>
+    </div></div>`;
+  }
+  return `<div class="ticket-list">${list.map(t => renderBudderTicketCard(t, 'available')).join('')}</div>`;
+}
+
+function viewBudderMine() {
+  const list = State.tickets
+    .filter(t => t.status === 'accepted' && t.budderName === State.profileName)
+    .sort((a, b) => new Date(a.acceptedAt) - new Date(b.acceptedAt));
+  if (list.length === 0) {
+    return `<div class="card"><div class="empty">
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">ยังไม่มีงานที่กำลังทำ</div>
+      <div class="empty-desc">ไปรับงานจาก "งานที่รอรับ" ได้เลย</div>
+    </div></div>`;
+  }
+  return `<div class="ticket-list">${list.map(t => renderBudderTicketCard(t, 'mine')).join('')}</div>`;
+}
+
+function viewBudderClosed() {
+  const list = State.tickets
+    .filter(t => t.status === 'closed' && t.budderName === State.profileName)
+    .sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt));
+  if (list.length === 0) {
+    return `<div class="card"><div class="empty">
+      <div class="empty-icon">📦</div>
+      <div class="empty-title">ยังไม่มีงานที่ปิดแล้ว</div>
+    </div></div>`;
+  }
+  const totalDorms = list.reduce((sum, t) => sum + (t.dormsSent || []).length, 0);
+  const withTime = list.filter(t => t.acceptedAt && t.closedAt);
+  const avgClose = withTime.length ? withTime.reduce((s, t) => s + (new Date(t.closedAt) - new Date(t.acceptedAt)), 0) / withTime.length : 0;
+  return `
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-good">
+        <div class="kpi-label">งานที่ปิดแล้ว</div>
+        <div class="kpi-value">${list.length}</div>
+      </div>
+      <div class="kpi-card kpi-yellow">
+        <div class="kpi-label">หอที่ส่งทั้งหมด</div>
+        <div class="kpi-value">${totalDorms}</div>
+      </div>
+      <div class="kpi-card kpi-accent">
+        <div class="kpi-label">เวลาเฉลี่ยในการปิด</div>
+        <div class="kpi-value" style="font-size: 22px;">${fmtDuration(avgClose)}</div>
+      </div>
+    </div>
+    <div class="ticket-list">${list.map(t => renderBudderTicketCard(t, 'closed')).join('')}</div>`;
+}
+
+function renderBudderTicketCard(t, mode) {
+  const og = ongoingTime(t);
+  let timeBadge = '';
+  if (og) {
+    const lvl = slaLevel(og.elapsed, og.target);
+    const phaseTxt = og.phase === 'waiting_accept' ? 'รอรับ' : 'กำลังทำ';
+    const bg = lvl === 'good' ? '#D1FAE5' : lvl === 'warning' ? '#FEF3C7' : '#FEE2E2';
+    timeBadge = `<span class="badge sla-${lvl}" style="background: ${bg};">${phaseTxt} ${fmtDuration(og.elapsed)}</span>`;
+  } else if (t.status === 'closed') {
+    const m = ticketMetrics(t);
+    timeBadge = `<span class="badge status-closed"><span class="badge-dot"></span>ใช้เวลา ${fmtDuration(m.execCloseMs)}</span>`;
+  }
+  let actions = '';
+  if (mode === 'available') {
+    actions = `
+      <button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>
+      <button class="btn btn-success" onclick="acceptTicket('${t.id}')">รับงาน</button>`;
+  } else if (mode === 'mine') {
+    actions = `
+      <button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>
+      <button class="btn btn-ghost" onclick="releaseTicket('${t.id}')">คืนงาน</button>
+      <button class="btn btn-success" onclick="openCloseDialog('${t.id}')">ปิดงาน</button>`;
+  } else {
+    actions = `<button class="btn btn-secondary" onclick="openTicketDetail('${t.id}')">ดูรายละเอียด</button>`;
+  }
+  const prioBadge = t.priority && t.priority !== 'normal'
+    ? `<span class="badge priority-${t.priority === 'high' ? 'high' : 'medium'}">${PRIORITY[t.priority]}</span>` : '';
+  return `
+    <div class="ticket-card">
+      <div class="ticket-card-head">
+        <div class="row gap-2">
+          <span class="ticket-id" style="font-size: 16px;">${escapeHtml(t.id)}</span>
+          <span class="badge status-${t.status}"><span class="badge-dot"></span>${STATUS[t.status]}</span>
+          ${prioBadge}
+        </div>
+        ${timeBadge}
+      </div>
+      <div class="ticket-card-meta">
+        <div><span class="label">มหาลัย</span><div class="value">${escapeHtml(t.universityName || '—')}</div></div>
+        <div><span class="label">Buddy</span><div class="value">${escapeHtml(t.buddyNickname || '—')}</div></div>
+        <div><span class="label">LINE ID</span><div class="value">${escapeHtml(t.buddyLineId || '—')}</div></div>
+        <div><span class="label">งบ</span><div class="value">${fmtBudget(t.budget)}</div></div>
+        ${t.dormName ? `<div><span class="label">หอที่ระบุ</span><div class="value">${escapeHtml(t.dormName)}</div></div>` : ''}
+        ${t.moveInDate ? `<div><span class="label">ย้ายเข้า</span><div class="value">${fmtDate(t.moveInDate)}</div></div>` : ''}
+        ${t.budderName ? `<div><span class="label">ผู้รับ</span><div class="value">${escapeHtml(t.budderName)}</div></div>` : ''}
+        ${t.status === 'closed' ? `<div><span class="label">หอที่ส่ง</span><div class="value">${(t.dormsSent || []).length} ที่</div></div>` : ''}
+      </div>
+      ${t.specialRequest ? `<div style="background: var(--surface-2); padding: 10px 14px; border-radius: var(--radius); font-size: 13px;"><span class="text-mute text-tiny">Request: </span>${escapeHtml(t.specialRequest)}</div>` : ''}
+      <div class="ticket-card-actions">${actions}</div>
+    </div>`;
+}
+
+/* =========================================================
+   TICKET DETAIL MODAL
+   ========================================================= */
+async function openTicketDetail(id) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  showModal(renderTicketDetailModal(t));
+  const imgs = await Store.loadImages(t.id);
+  const ig = $('#detail-images');
+  if (ig) {
+    if (imgs.length === 0) {
+      ig.innerHTML = `<div class="text-mute text-tiny" style="padding: 8px 0;">— ไม่มีรูปแนบ —</div>`;
+    } else {
+      ig.innerHTML = imgs.map(d => `<div class="image-preview"><img src="${d}" onclick='viewImageFullscreen(this.src)'></div>`).join('');
+    }
+  }
+}
+
+function viewImageFullscreen(dataUrl) {
+  const root = $('#modal-root');
+  const div = document.createElement('div');
+  div.className = 'modal-backdrop';
+  div.style.zIndex = '60';
+  div.onclick = () => div.remove();
+  const img = document.createElement('img');
+  img.src = dataUrl;
+  img.style.cssText = 'max-width:95vw;max-height:95vh;border-radius:8px;box-shadow:var(--shadow-lg);';
+  div.appendChild(img);
+  root.appendChild(div);
+}
+
+function renderTicketDetailModal(t) {
+  const m = ticketMetrics(t);
+  const isAdmin = State.role === 'admin';
+  const isMyJob = t.status === 'accepted' && t.budderName === State.profileName;
+
+  let footer = '';
+  if (isAdmin) {
+    const actions = [];
+    if (t.status !== 'closed' && t.status !== 'cancelled') {
+      actions.push(`<button class="btn btn-ghost" onclick="goEditTicket('${t.id}')">✏️ แก้ไข</button>`);
+      if (t.status !== 'on_hold') actions.push(`<button class="btn btn-ghost" onclick="setTicketStatus('${t.id}', 'on_hold')">⏸️ พักงาน</button>`);
+      if (t.status === 'accepted') actions.push(`<button class="btn btn-ghost" onclick="reassignTicket('${t.id}')">🔄 ให้คนอื่นรับ</button>`);
+      actions.push(`<button class="btn btn-danger" onclick="cancelTicket('${t.id}')">❌ ยกเลิก</button>`);
+    }
+    actions.push(`<button class="btn btn-secondary" onclick="closeModal()">ปิด</button>`);
+    footer = actions.join('');
+  } else {
+    const actions = [];
+    if (AVAILABLE_STATUSES.includes(t.status)) {
+      actions.push(`<button class="btn btn-success" onclick="acceptTicket('${t.id}'); closeModal();">รับงาน</button>`);
+    } else if (isMyJob) {
+      actions.push(`<button class="btn btn-ghost" onclick="releaseTicket('${t.id}'); closeModal();">คืนงาน</button>`);
+      actions.push(`<button class="btn btn-success" onclick="closeModal(); openCloseDialog('${t.id}');">ปิดงาน</button>`);
+    }
+    actions.push(`<button class="btn btn-secondary" onclick="closeModal()">ปิด</button>`);
+    footer = actions.join('');
+  }
+
+  return `
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">${escapeHtml(t.id)}</div>
+        <div class="row gap-2 mt-1">
+          <span class="badge status-${t.status}"><span class="badge-dot"></span>${STATUS[t.status]}</span>
+          ${t.priority && t.priority !== 'normal' ? `<span class="badge priority-${t.priority === 'high' ? 'high' : 'medium'}">${PRIORITY[t.priority]}</span>` : ''}
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-section">
+        <div class="detail-section-title">Timeline</div>
+        <div class="timeline">
+          <div class="timeline-item"><div class="timeline-dot ${t.customerLastContactAt ? 'done' : ''}"></div><div class="timeline-label ${t.customerLastContactAt ? 'done' : ''}">ลูกค้าทักล่าสุด</div><div class="timeline-time">${fmtDateTime(t.customerLastContactAt)}</div></div>
+          <div class="timeline-item"><div class="timeline-dot ${t.createdAt ? 'done' : ''}"></div><div class="timeline-label ${t.createdAt ? 'done' : ''}">Admin เปิดใบงาน${t.adminName ? ` (${escapeHtml(t.adminName)})` : ''}</div><div class="timeline-time">${fmtDateTime(t.createdAt)}</div></div>
+          <div class="timeline-item"><div class="timeline-dot ${t.acceptedAt ? 'done' : ''}"></div><div class="timeline-label ${t.acceptedAt ? 'done' : ''}">Budder รับงาน${t.budderName ? ` (${escapeHtml(t.budderName)})` : ''}</div><div class="timeline-time">${fmtDateTime(t.acceptedAt)}</div></div>
+          <div class="timeline-item"><div class="timeline-dot ${t.closedAt ? 'done' : ''}"></div><div class="timeline-label ${t.closedAt ? 'done' : ''}">ปิดงาน</div><div class="timeline-time">${fmtDateTime(t.closedAt)}</div></div>
+        </div>
+        ${m.adminOpenMs != null || m.waitAcceptMs != null || m.execCloseMs != null ? `
+          <div class="mt-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; font-size: 12px;">
+            ${m.adminOpenMs != null ? `<div><div class="text-mute text-tiny">Admin เปิดใน</div><div class="sla-${slaLevel(m.adminOpenMs, SLA.openWithin)}" style="font-weight:600;">${fmtDuration(m.adminOpenMs)}</div></div>` : ''}
+            ${m.waitAcceptMs != null ? `<div><div class="text-mute text-tiny">รอรับ</div><div class="sla-${slaLevel(m.waitAcceptMs, SLA.acceptWithin)}" style="font-weight:600;">${fmtDuration(m.waitAcceptMs)}</div></div>` : ''}
+            ${m.execCloseMs != null ? `<div><div class="text-mute text-tiny">Budder ปิดใน</div><div class="sla-${slaLevel(m.execCloseMs, SLA.closeWithin)}" style="font-weight:600;">${fmtDuration(m.execCloseMs)}</div></div>` : ''}
+            ${m.totalMs != null ? `<div><div class="text-mute text-tiny">เวลารวม</div><div style="font-weight:600;">${fmtDuration(m.totalMs)}</div></div>` : ''}
+          </div>` : ''}
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">ข้อมูล Buddy</div>
+        <div class="detail-row"><div class="key">ชื่อเล่น</div><div class="val">${escapeHtml(t.buddyNickname || '—')}</div></div>
+        <div class="detail-row"><div class="key">LINE ID</div><div class="val">${escapeHtml(t.buddyLineId || '—')}</div></div>
+        <div class="detail-row"><div class="key">เบอร์โทร</div><div class="val">${escapeHtml(t.buddyPhone || '—')}</div></div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">ความต้องการ</div>
+        <div class="detail-row"><div class="key">มหาวิทยาลัย</div><div class="val">${escapeHtml(t.universityName || '—')}</div></div>
+        <div class="detail-row"><div class="key">หอ/คอนโดที่ระบุ</div><div class="val">${escapeHtml(t.dormName || '—')}</div></div>
+        <div class="detail-row"><div class="key">งบประมาณ</div><div class="val">${fmtBudget(t.budget)}</div></div>
+        <div class="detail-row"><div class="key">วันที่ย้ายเข้า</div><div class="val">${t.moveInDate ? fmtDate(t.moveInDate) : '—'}</div></div>
+        <div class="detail-row"><div class="key">Special Request</div><div class="val">${escapeHtml(t.specialRequest || '—')}</div></div>
+        ${t.notes ? `<div class="detail-row"><div class="key">Notes</div><div class="val">${escapeHtml(t.notes)}</div></div>` : ''}
+      </div>
+
+      ${t.dormsSent && t.dormsSent.length > 0 ? `
+        <div class="detail-section">
+          <div class="detail-section-title">หอที่ส่งให้ Buddy (${t.dormsSent.length} ที่)</div>
+          <div>
+            ${t.dormsSent.map((d, i) => `
+              <div class="row" style="padding: 6px 0; border-bottom: 1px solid var(--border);">
+                <span class="text-mute text-tiny">${i+1}.</span>
+                <strong>${escapeHtml(d.name)}</strong>
+                ${d.location ? `<span class="text-mute text-small">— ${escapeHtml(d.location)}</span>` : ''}
+              </div>`).join('')}
+          </div>
+        </div>` : ''}
+
+      <div class="detail-section">
+        <div class="detail-section-title">รูปแคปแชท</div>
+        <div class="image-preview-grid" id="detail-images">
+          <div class="spinner" style="margin: 0;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">${footer}</div>`;
+}
+
+function goEditTicket(id) {
+  closeModal();
+  State.subView = 'create';
+  const main = $('.main');
+  if (main) { main.innerHTML = viewAdminCreate(id); attachInnerEvents(); }
+}
+
+// ----- Close Dialog -----
+function openCloseDialog(id) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  const existing = t.dormsSent || [];
+  showModal(`
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">ปิดงาน — ${escapeHtml(t.id)}</div>
+        <div class="text-mute text-small mt-1">กรอกรายชื่อหอที่ส่งให้ Buddy ก่อนปิดงาน</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field mb-3">
+        <label class="field-label">รายชื่อหอที่ส่งให้ Buddy <span class="req">*</span></label>
+        <div class="field-hint">เพิ่มอย่างน้อย 1 หอ — จำนวนหอจะใช้วัด performance</div>
+      </div>
+      <div class="dorm-list" id="dorms-list">
+        ${(existing.length > 0 ? existing : [{ name: '', location: '' }]).map((d, i) => `
+          <div class="dorm-row" data-idx="${i}">
+            <input class="input dorm-name" type="text" placeholder="ชื่อหอ" value="${escapeHtml(d.name)}">
+            <input class="input dorm-loc" type="text" placeholder="ทำเล/รายละเอียด (ไม่บังคับ)" value="${escapeHtml(d.location)}">
+            <button class="remove-btn" onclick="removeDormRow(${i})">✕</button>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-secondary btn-sm mt-2" onclick="addDormRow()">+ เพิ่มหอ</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-success" onclick="confirmCloseTicket('${id}')">✓ ปิดงาน</button>
+    </div>`);
+}
+
+function addDormRow() {
+  const list = $('#dorms-list');
+  const idx = list.children.length;
+  const div = document.createElement('div');
+  div.className = 'dorm-row';
+  div.dataset.idx = idx;
+  div.innerHTML = `
+    <input class="input dorm-name" type="text" placeholder="ชื่อหอ" value="">
+    <input class="input dorm-loc" type="text" placeholder="ทำเล/รายละเอียด (ไม่บังคับ)" value="">
+    <button class="remove-btn" onclick="removeDormRow(${idx})">✕</button>`;
+  list.appendChild(div);
+}
+function removeDormRow(idx) {
+  const list = $('#dorms-list');
+  if (list.children.length <= 1) return;
+  const row = list.querySelector(`[data-idx="${idx}"]`);
+  if (row) row.remove();
+}
+
+async function confirmCloseTicket(id) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  const rows = $$('#dorms-list .dorm-row');
+  const dorms = rows.map(r => ({
+    name: r.querySelector('.dorm-name').value.trim(),
+    location: r.querySelector('.dorm-loc').value.trim()
+  })).filter(d => d.name);
+  if (dorms.length === 0) { toast('กรุณากรอกชื่อหออย่างน้อย 1 หอ', 'error'); return; }
+  const updated = { ...t, dormsSent: dorms, status: 'closed', closedAt: nowISO() };
+  const ok = await Store.saveTicket(updated);
+  if (ok) {
+    closeModal();
+    toast('ปิดงานเรียบร้อย ✓', 'success');
+  }
+}
+
+/* =========================================================
+   TICKET ACTIONS
+   ========================================================= */
+async function acceptTicket(id) {
+  if (!State.profileName) { toast('กรุณาเลือกชื่อก่อน', 'error'); return; }
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  if (!AVAILABLE_STATUSES.includes(t.status)) { toast('งานนี้ไม่สามารถรับได้แล้ว', 'error'); return; }
+  const updated = { ...t, status: 'accepted', acceptedAt: nowISO(), budderName: State.profileName };
+  const ok = await Store.saveTicket(updated);
+  if (ok) toast(`รับงาน ${id} เรียบร้อย`, 'success');
+}
+
+async function releaseTicket(id) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  if (!confirm(`คืนงาน ${id} ให้คนอื่นรับ?`)) return;
+  const updated = { ...t, status: 'reassigned', acceptedAt: null, budderName: null };
+  const ok = await Store.saveTicket(updated);
+  if (ok) toast(`คืนงาน ${id} แล้ว`, 'success');
+}
+
+async function setTicketStatus(id, newStatus) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  const updated = { ...t, status: newStatus };
+  if (newStatus === 'on_hold' || newStatus === 'reassigned') {
+    updated.acceptedAt = null;
+    updated.budderName = null;
+  }
+  const ok = await Store.saveTicket(updated);
+  if (ok) { closeModal(); toast(`เปลี่ยนสถานะเป็น "${STATUS[newStatus]}"`, 'success'); }
+}
+
+async function reassignTicket(id) {
+  if (!confirm(`ให้งาน ${id} กลับไปอยู่ใน pool ?`)) return;
+  await setTicketStatus(id, 'reassigned');
+}
+
+async function cancelTicket(id) {
+  if (!confirm(`ยกเลิกใบงาน ${id} ?`)) return;
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  const updated = { ...t, status: 'cancelled', cancelledAt: nowISO() };
+  const ok = await Store.saveTicket(updated);
+  if (ok) { closeModal(); toast('ยกเลิกใบงานแล้ว', 'success'); }
+}
+
+/* =========================================================
+   MASTER DATA ACTIONS
+   ========================================================= */
+async function addListItem(kind) {
+  const input = $(`#new-${kind}`);
+  const v = input.value.trim();
+  if (!v) return;
+  if (State.masters[kind].includes(v)) { toast('มีรายชื่อนี้แล้ว', 'error'); return; }
+  State.masters[kind].push(v);
+  input.value = '';
+  await Store.saveMasters();
+}
+async function removeListItem(kind, idx) {
+  if (!confirm('ลบรายการนี้?')) return;
+  State.masters[kind].splice(idx, 1);
+  await Store.saveMasters();
+}
+
+async function addUniversity() {
+  const name = $('#new-uni-name').value.trim();
+  const prefix = $('#new-uni-prefix').value.trim().toUpperCase();
+  if (!name || !prefix) { toast('กรอกข้อมูลให้ครบ', 'error'); return; }
+  if (!/^[A-Z0-9]{2,4}$/.test(prefix)) { toast('Prefix ต้องเป็น A-Z หรือ 0-9 ความยาว 2-4 ตัว', 'error'); return; }
+  if (State.masters.universities.some(u => u.prefix === prefix)) { toast('Prefix นี้ใช้แล้ว', 'error'); return; }
+  State.masters.universities.push({ name, prefix });
+  if (!State.masters.counters[prefix]) State.masters.counters[prefix] = 0;
+  $('#new-uni-name').value = ''; $('#new-uni-prefix').value = '';
+  await Store.saveMasters();
+}
+async function removeUniversity(idx) {
+  const u = State.masters.universities[idx];
+  if (State.tickets.some(t => t.universityPrefix === u.prefix)) { toast('มีใบงานที่อ้างถึงมหาลัยนี้แล้ว ลบไม่ได้', 'error'); return; }
+  if (!confirm(`ลบ ${u.name} (${u.prefix}) ?`)) return;
+  State.masters.universities.splice(idx, 1);
+  await Store.saveMasters();
+}
+
+async function firstTimeAdminSetup() {
+  const name = prompt('กรอกชื่อ Admin คนแรก (คุณ):');
+  if (!name || !name.trim()) return;
+  State.masters.admins.push(name.trim());
+  State.profileName = name.trim();
+  await Store.saveMasters();
+  render();
+}
+
+/* =========================================================
+   EXCEL EXPORT
+   ========================================================= */
+function exportExcel() {
+  const from = new Date(State.reportFrom).getTime();
+  const to = new Date(State.reportTo).getTime() + 86400000;
+  const rows = State.tickets
+    .filter(t => { const c = new Date(t.createdAt).getTime(); return c >= from && c <= to; })
+    .map(t => {
+      const m = ticketMetrics(t);
+      return {
+        'รหัสใบงาน': t.id,
+        'สถานะ': STATUS[t.status],
+        'Priority': PRIORITY[t.priority || 'normal'],
+        'Admin': t.adminName || '',
+        'Certified Budder': t.budderName || '',
+        'มหาวิทยาลัย': t.universityName || '',
+        'หอที่ระบุ': t.dormName || '',
+        'งบประมาณ': t.budget || '',
+        'วันย้ายเข้า': t.moveInDate || '',
+        'Buddy LINE ID': t.buddyLineId || '',
+        'ชื่อ Buddy': t.buddyNickname || '',
+        'เบอร์โทร': t.buddyPhone || '',
+        'Special Request': t.specialRequest || '',
+        'Notes': t.notes || '',
+        'ลูกค้าทักล่าสุด': t.customerLastContactAt ? fmtDateTime(t.customerLastContactAt) : '',
+        'เปิดงาน': t.createdAt ? fmtDateTime(t.createdAt) : '',
+        'รับงาน': t.acceptedAt ? fmtDateTime(t.acceptedAt) : '',
+        'ปิดงาน': t.closedAt ? fmtDateTime(t.closedAt) : '',
+        'เวลา Admin เปิด (นาที)': m.adminOpenMs != null ? Math.round(m.adminOpenMs / 60000) : '',
+        'เวลารอรับ (นาที)': m.waitAcceptMs != null ? Math.round(m.waitAcceptMs / 60000) : '',
+        'เวลา Budder ปิด (นาที)': m.execCloseMs != null ? Math.round(m.execCloseMs / 60000) : '',
+        'เวลารวม (นาที)': m.totalMs != null ? Math.round(m.totalMs / 60000) : '',
+        'จำนวนหอที่ส่ง': (t.dormsSent || []).length,
+        'รายชื่อหอที่ส่ง': (t.dormsSent || []).map(d => d.name + (d.location ? ` (${d.location})` : '')).join('; ')
+      };
+    });
+  if (rows.length === 0) { toast('ไม่มีข้อมูลในช่วงที่เลือก', 'error'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'ใบงาน');
+  const fname = `PropertyBuddy_Report_${State.reportFrom}_${State.reportTo}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  toast('ดาวน์โหลด Excel เรียบร้อย', 'success');
+}
+
+/* =========================================================
+   RENDER & EVENTS
+   ========================================================= */
+async function render() {
+  const app = $('#app');
+  ChartRegistry.destroyAll();
+
+  if (!State.firebaseReady) { app.innerHTML = viewFirebaseSetup(); attachFirebaseSetupEvents(); return; }
+  if (!State.authed) { app.innerHTML = viewLogin(); attachLoginEvents(); return; }
+  if (!State.profileName) { app.innerHTML = viewProfileSelect(); attachProfileEvents(); return; }
+
+  if (!State.timerInterval) {
+    State.timerInterval = setInterval(() => {
+      if (State.view === 'admin' && State.subView === 'tickets') renderInner(viewAdminTickets());
+      else if (State.view === 'budder' && (State.subView === 'available' || State.subView === 'mine')) {
+        const inner = State.subView === 'available' ? viewBudderAvailable() : viewBudderMine();
+        renderInner(inner);
+      }
+    }, 30000);
+  }
+
+  let inner = '';
+  if (State.role === 'admin') {
+    if (State.subView === 'tickets') inner = viewAdminTickets();
+    else if (State.subView === 'create') inner = viewAdminCreate();
+    else if (State.subView === 'masters') inner = viewAdminMasters();
+    else if (State.subView === 'reports') inner = viewAdminReports();
+  } else {
+    if (State.subView === 'available') inner = viewBudderAvailable();
+    else if (State.subView === 'mine') inner = viewBudderMine();
+    else if (State.subView === 'closed') inner = viewBudderClosed();
+  }
+  app.innerHTML = viewAppShell(inner);
+  attachShellEvents();
+  attachInnerEvents();
+
+  // Render charts after DOM is set
+  if (State.role === 'admin' && State.subView === 'reports') {
+    setTimeout(renderReportsCharts, 50);
+  }
+}
+
+function renderInner(html) {
+  const main = $('.main');
+  if (main) {
+    ChartRegistry.destroyAll();
+    main.innerHTML = html;
+    attachInnerEvents();
+    if (State.role === 'admin' && State.subView === 'reports') setTimeout(renderReportsCharts, 50);
+  }
+}
+
+function attachFirebaseSetupEvents() {
+  $('#firebase-form').addEventListener('submit', handleFirebaseSetup);
+}
+
+async function handleFirebaseSetup(e) {
+  e.preventDefault();
+  const text = $('#firebase-config').value.trim();
+  let config;
+  try { config = JSON.parse(text); }
+  catch (e1) {
+    try { config = (new Function('return ' + text))(); }
+    catch (e2) {
+      $('#firebase-err').innerHTML = `<div class="login-error">Config format ไม่ถูกต้อง — ตรวจสอบเครื่องหมาย { } และ , ให้ครบ</div>`;
+      return;
+    }
+  }
+  if (!config || !config.apiKey || !config.projectId) {
+    $('#firebase-err').innerHTML = `<div class="login-error">Config ไม่ครบ — ต้องมี apiKey และ projectId</div>`;
+    return;
+  }
+  const btn = e.target.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'กำลังเชื่อมต่อ...'; }
+  const result = await Store.init(config);
+  if (!result.ok) {
+    $('#firebase-err').innerHTML = `<div class="login-error">เชื่อมต่อไม่สำเร็จ: ${escapeHtml(result.error)}</div>`;
+    if (btn) { btn.disabled = false; btn.textContent = 'เชื่อมต่อ Firebase'; }
+    return;
+  }
+  try { localStorage.setItem(LS_KEY_FIREBASE, JSON.stringify(config)); } catch (e) {}
+  Store.subscribeMasters();
+  Store.subscribeTickets();
+  toast('เชื่อมต่อ Firebase สำเร็จ ✓', 'success');
+  setTimeout(render, 500);
+}
+
+function resetFirebaseConfig() {
+  if (!confirm('ล้าง Firebase config และตั้งค่าใหม่?')) return;
+  try { localStorage.removeItem(LS_KEY_FIREBASE); } catch (e) {}
+  Store.disconnect();
+  State.firebaseReady = false;
+  State.authed = false; State.role = null; State.profileName = null;
+  render();
+}
+
+function attachLoginEvents() {
+  $('#login-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const u = $('#login-user').value.trim();
+    const p = $('#login-pass').value;
+    if (tryLogin(u, p)) render();
+    else $('#login-err').innerHTML = `<div class="login-error">Username หรือ Password ไม่ถูกต้อง</div>`;
+  });
+}
+
+function attachProfileEvents() {
+  const form = $('#profile-form');
+  if (form) form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = $('#profile-name').value;
+    if (!v) return;
+    State.profileName = v;
+    try { localStorage.setItem(LS_KEY_PROFILE, JSON.stringify({ role: State.role, name: v })); } catch (e) {}
+    render();
+  });
+}
+
+function attachShellEvents() {
+  $$('#nav-tabs .nav-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      State.subView = btn.dataset.tab;
+      State.subSubView = null;
+      render();
+    });
+  });
+  $('#user-pill').addEventListener('click', showUserMenu);
+}
+
+function showUserMenu() {
+  const list = State.role === 'admin' ? State.masters.admins : State.masters.budders;
+  const opts = list.map(n => `<option value="${escapeHtml(n)}" ${State.profileName === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">โปรไฟล์</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field mb-3">
+        <label class="field-label">เปลี่ยนชื่อ${State.role === 'admin' ? ' Admin' : ' Certified Budder'}</label>
+        <select class="select" id="switch-name">${opts}</select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="logout(); closeModal();">ออกจากระบบ</button>
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="switchProfile()">บันทึก</button>
+    </div>`);
+}
+
+function switchProfile() {
+  const v = $('#switch-name').value;
+  if (v) {
+    State.profileName = v;
+    try { localStorage.setItem(LS_KEY_PROFILE, JSON.stringify({ role: State.role, name: v })); } catch (e) {}
+    toast(`สลับเป็น ${v}`, 'success');
+    render();
+  }
+  closeModal();
+}
+
+function attachInnerEvents() {
+  const fs = $('#f-search'); if (fs) fs.addEventListener('input', (e) => { State.filters.search = e.target.value; renderInner(viewAdminTickets()); });
+  const ft = $('#f-status'); if (ft) ft.addEventListener('change', (e) => { State.filters.status = e.target.value; renderInner(viewAdminTickets()); });
+  const fu = $('#f-uni'); if (fu) fu.addEventListener('change', (e) => { State.filters.universityPrefix = e.target.value; renderInner(viewAdminTickets()); });
+  const fa = $('#f-admin'); if (fa) fa.addEventListener('change', (e) => { State.filters.adminName = e.target.value; renderInner(viewAdminTickets()); });
+  const fb = $('#f-budder'); if (fb) fb.addEventListener('change', (e) => { State.filters.budderName = e.target.value; renderInner(viewAdminTickets()); });
+  const fc = $('#f-clear'); if (fc) fc.addEventListener('click', () => {
+    State.filters = { search:'', status:'', universityPrefix:'', adminName:'', budderName:'', dateFrom:'', dateTo:'' };
+    renderInner(viewAdminTickets());
+  });
+
+  $$('.table tr.clickable').forEach(row => {
+    row.addEventListener('click', () => openTicketDetail(row.dataset.tid));
+  });
+
+  const cf = $('#create-form');
+  if (cf) attachCreateForm();
+
+  $$('.subtab').forEach(b => b.addEventListener('click', () => {
+    State.subSubView = b.dataset.sub;
+    render();
+  }));
+
+  const rf = $('#rep-from'); if (rf) rf.addEventListener('change', (e) => { State.reportFrom = e.target.value; renderInner(viewAdminReports()); });
+  const rt = $('#rep-to'); if (rt) rt.addEventListener('change', (e) => { State.reportTo = e.target.value; renderInner(viewAdminReports()); });
+  const ee = $('#export-excel'); if (ee) ee.addEventListener('click', exportExcel);
+}
+
+const CreateFormState = { editingId: null, images: [] };
+
+async function attachCreateForm() {
+  const editingId = $('#edit-id').value || null;
+  CreateFormState.editingId = editingId;
+  CreateFormState.images = [];
+
+  if (editingId) {
+    const imgs = await Store.loadImages(editingId);
+    CreateFormState.images = imgs.slice();
+    renderImagePreview();
+  }
+
+  $('#image-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (CreateFormState.images.length + files.length > 3) { toast('แนบรูปได้สูงสุด 3 รูป', 'error'); e.target.value = ''; return; }
+    for (const f of files) {
+      try {
+        const data = await compressImage(f);
+        CreateFormState.images.push(data);
+      } catch (err) {
+        toast('โหลดรูปไม่สำเร็จ: ' + err.message, 'error');
+      }
+    }
+    e.target.value = '';
+    renderImagePreview();
+  });
+
+  $('#create-cancel').addEventListener('click', () => {
+    State.subView = 'tickets';
+    render();
+  });
+
+  $('#create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await submitCreateForm();
+  });
+}
+
+function renderImagePreview() {
+  const grid = $('#image-preview');
+  if (!grid) return;
+  if (CreateFormState.images.length === 0) { grid.innerHTML = ''; return; }
+  grid.innerHTML = CreateFormState.images.map((d, i) => `
+    <div class="image-preview">
+      <img src="${d}">
+      <button type="button" class="image-preview-remove" onclick="removeImageAt(${i})">✕</button>
+    </div>`).join('');
+}
+function removeImageAt(i) {
+  CreateFormState.images.splice(i, 1);
+  renderImagePreview();
+}
+
+async function submitCreateForm() {
+  const editingId = CreateFormState.editingId;
+  const adminName = $('#adminName').value;
+  const universityPrefix = $('#universityPrefix').value;
+  const customerLastContact = $('#customerLastContact').value;
+  const buddyLineId = $('#buddyLineId').value.trim();
+  const buddyNickname = $('#buddyNickname').value.trim();
+  const buddyPhone = $('#buddyPhone').value.trim();
+  const priority = $('#priority').value;
+  const dormName = $('#dormName').value.trim();
+  const budget = $('#budget').value ? Number($('#budget').value) : null;
+  const moveInDate = $('#moveInDate').value || null;
+  const specialRequest = $('#specialRequest').value.trim();
+  const notes = $('#notes').value.trim();
+
+  if (!adminName || !universityPrefix || !buddyLineId || !buddyNickname || !customerLastContact) {
+    toast('กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบ', 'error'); return;
+  }
+  const uni = State.masters.universities.find(u => u.prefix === universityPrefix);
+  if (!uni) { toast('ไม่พบมหาลัยที่เลือก', 'error'); return; }
+
+  const submitBtn = $('#create-submit');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'กำลังบันทึก...'; }
+
+  let ticket;
+  if (editingId) {
+    ticket = { ...State.tickets.find(t => t.id === editingId) };
+    Object.assign(ticket, {
+      adminName, universityPrefix, universityName: uni.name,
+      customerLastContactAt: new Date(customerLastContact).toISOString(),
+      buddyLineId, buddyNickname, buddyPhone, priority,
+      dormName: dormName || null, budget, moveInDate, specialRequest: specialRequest || null, notes: notes || null
+    });
+  } else {
+    const id = generateTicketId(universityPrefix);
+    ticket = {
+      id,
+      status: 'new',
+      adminName, universityPrefix, universityName: uni.name,
+      customerLastContactAt: new Date(customerLastContact).toISOString(),
+      createdAt: nowISO(),
+      buddyLineId, buddyNickname, buddyPhone: buddyPhone || null, priority,
+      dormName: dormName || null, budget, moveInDate, 
+      specialRequest: specialRequest || null, notes: notes || null,
+      acceptedAt: null, closedAt: null, cancelledAt: null,
+      budderName: null, dormsSent: []
+    };
+  }
+
+  const okT = await Store.saveTicket(ticket);
+  const okM = await Store.saveMasters();
+  await Store.saveImages(ticket.id, CreateFormState.images);
+
+  if (okT && okM) {
+    toast(editingId ? 'บันทึกการแก้ไขเรียบร้อย' : `เปิดใบงาน ${ticket.id} เรียบร้อย`, 'success');
+    State.subView = 'tickets';
+    render();
+  } else {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = editingId ? 'บันทึกการแก้ไข' : 'เปิดใบงาน'; }
+  }
+}
+
+/* =========================================================
+   INIT
+   ========================================================= */
+async function init() {
+  $('#app').innerHTML = `<div class="login-wrap"><div class="login-card" style="text-align:center;"><div class="spinner"></div><div class="text-mute mt-2">กำลังโหลด...</div></div></div>`;
+
+  // Check for Firebase config: embedded > localStorage > setup wizard
+  let config = EMBEDDED_FIREBASE_CONFIG;
+  if (!config) {
+    try {
+      const stored = localStorage.getItem(LS_KEY_FIREBASE);
+      if (stored) config = JSON.parse(stored);
+    } catch (e) {}
+  }
+
+  if (config) {
+    const result = await Store.init(config);
+    if (result.ok) {
+      Store.subscribeMasters();
+      Store.subscribeTickets();
+      // Restore profile if saved
+      try {
+        const p = JSON.parse(localStorage.getItem(LS_KEY_PROFILE) || 'null');
+        // Don't auto-restore — user should login each time for security
+      } catch (e) {}
+    }
+  }
+
+  render();
+}
+
+// Expose globals for inline handlers
+Object.assign(window, {
+  acceptTicket, releaseTicket, cancelTicket, reassignTicket, setTicketStatus,
+  openTicketDetail, openCloseDialog, confirmCloseTicket, addDormRow, removeDormRow,
+  viewImageFullscreen, addListItem, removeListItem, addUniversity, removeUniversity,
+  firstTimeAdminSetup, switchProfile, closeModal, logout, removeImageAt,
+  goEditTicket, resetFirebaseConfig, State, renderInner, viewAdminCreate
+});
+
+init();
+</script>
+</body>
+</html>
