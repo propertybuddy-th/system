@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-<link rel="icon" type="image/svg+xml" href="logo propertybuddy.svg">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Property Buddy — Certified Budder Management</title>
@@ -656,29 +655,22 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
    ========================================================= */
 
 // ============ EMBEDDED CONFIG (optional) ============
-
 // Team lead can edit this object and skip the setup wizard for users
-
-const EMBEDDED_FIREBASE_CONFIG = {
-
-  apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
-
-  authDomain: "propertybuddy-ed25d.firebaseapp.com",
-
-  projectId: "propertybuddy-ed25d",
-
-  storageBucket: "propertybuddy-ed25d.firebasestorage.app",
-
-  messagingSenderId: "100054480079",
-
-  appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
-
-};
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
 
 // ============ CONFIG ============
 const CREDENTIALS = {
-  admin: { user: 'admin', pass: 'welovepropertybuddy', role: 'admin' },
-  budder: { user: 'budder', pass: 'wearepropertybudder', role: 'budder' }
+  admin: { user: 'admin', pass: 'welovepropertybuddy', role: 'admin' }
+  // Budder login moved to per-user (stored in masters.budders[].username/password)
 };
 
 const SLA = {
@@ -721,6 +713,27 @@ function isInAvailablePool(t) {
 function isAssignedTo(t, name) {
   if (!name || t.budderName !== name) return false;
   return t.status === 'accepted' || t.status === 'on_hold';
+}
+
+// Helper: หา record ของ Budder ที่กำลัง login อยู่
+function getCurrentBudder() {
+  if (State.role !== 'budder' || !State.profileName) return null;
+  return State.masters.budders.find(b =>
+    b && typeof b === 'object' && b.name === State.profileName
+  ) || null;
+}
+
+// Helper: รายชื่อ prefix มหาลัยที่ Budder คนปัจจุบันดูแล
+function getBudderUniversities() {
+  const b = getCurrentBudder();
+  return b ? (b.universities || []) : [];
+}
+
+// Helper: ticket นี้อยู่ในขอบเขตของ Budder ปัจจุบันหรือไม่ (ตาม university assignment)
+function isTicketInBudderScope(t) {
+  const unis = getBudderUniversities();
+  if (unis.length === 0) return false; // no assignments = nothing visible
+  return unis.includes(t.universityPrefix);
 }
 
 const LS_KEY_FIREBASE = 'pb_firebase_config';
@@ -811,12 +824,33 @@ const Store = {
       .onSnapshot(doc => {
         if (doc.exists) {
           const d = doc.data();
+          // ----- Migrate budders: string[] → object[] -----
+          let budders = d.budders || [];
+          let needsMigration = false;
+          budders = budders.map(b => {
+            if (typeof b === 'string') {
+              needsMigration = true;
+              return { name: b, username: null, password: null, universities: [] };
+            }
+            // Normalize object format
+            return {
+              name: b.name || '',
+              username: b.username || null,
+              password: b.password || null,
+              universities: Array.isArray(b.universities) ? b.universities : []
+            };
+          });
           State.masters = {
             admins: d.admins || [],
-            budders: d.budders || [],
+            budders: budders,
             universities: d.universities || [],
             counters: d.counters || {}
           };
+          // Save back migrated format silently
+          if (needsMigration) {
+            console.log('Migrating budders to new format with credentials...');
+            this.saveMasters();
+          }
         } else {
           State.masters = { admins: [], budders: [], universities: [], counters: {} };
         }
@@ -1032,17 +1066,25 @@ function isWithinSLA(elapsed, target) { return elapsed != null && target != null
    AUTH
    ========================================================= */
 function tryLogin(user, pass) {
+  // Admin: shared credentials (4 admins ใช้ user/pass เดียวกัน เลือกชื่อหลัง login)
   if (user === CREDENTIALS.admin.user && pass === CREDENTIALS.admin.pass) {
     State.authed = true; State.role = 'admin';
     State.view = 'admin'; State.subView = 'tickets';
-    return true;
+    return { ok: true };
   }
-  if (user === CREDENTIALS.budder.user && pass === CREDENTIALS.budder.pass) {
+  // Budder: per-user credentials (lookup ใน master list)
+  const uname = (user || '').toLowerCase().trim();
+  const budder = State.masters.budders.find(b =>
+    b && typeof b === 'object' && b.username && b.password
+    && b.username.toLowerCase() === uname && b.password === pass
+  );
+  if (budder) {
     State.authed = true; State.role = 'budder';
+    State.profileName = budder.name; // ระบบรู้ตัวจาก username — ไม่ต้องเลือกชื่อ
     State.view = 'budder'; State.subView = 'available';
-    return true;
+    return { ok: true };
   }
-  return false;
+  return { ok: false };
 }
 function logout() {
   State.authed = false; State.role = null; State.profileName = null;
@@ -1131,8 +1173,12 @@ function viewLogin() {
 }
 
 function viewProfileSelect() {
-  const list = State.role === 'admin' ? State.masters.admins : State.masters.budders;
-  const label = State.role === 'admin' ? 'Admin' : 'Certified Budder';
+  // หมายเหตุ: หลังเพิ่ม per-budder credentials, viewProfileSelect ใช้แค่กับ Admin
+  // (Budder login ด้วย username/password ส่วนตัวแล้ว — profileName set ตั้งแต่ tryLogin)
+  // เก็บ logic ของ budder ไว้เผื่อ edge case
+  const isAdmin = State.role === 'admin';
+  const list = isAdmin ? State.masters.admins : State.masters.budders.map(b => b.name).filter(Boolean);
+  const label = isAdmin ? 'Admin' : 'Certified Budder';
   if (!list || list.length === 0) {
     return `
       <div class="login-wrap">
@@ -1190,7 +1236,8 @@ function viewAppShell(inner) {
   const tabsHtml = tabs.map(t => {
     let count = '';
     if (t.key === 'available') {
-      const n = State.tickets.filter(isInAvailablePool).length;
+      const unis = getBudderUniversities();
+      const n = State.tickets.filter(x => isInAvailablePool(x) && unis.includes(x.universityPrefix)).length;
       if (n > 0) count = `<span class="badge-count">${n}</span>`;
     } else if (t.key === 'mine') {
       const n = State.tickets.filter(x => isAssignedTo(x, State.profileName)).length;
@@ -1245,7 +1292,7 @@ function renderFilterToolbar() {
     `<option value="${escapeHtml(a)}" ${f.adminName === a ? 'selected' : ''}>${escapeHtml(a)}</option>`
   ).join('');
   const budderOpts = State.masters.budders.map(b =>
-    `<option value="${escapeHtml(b)}" ${f.budderName === b ? 'selected' : ''}>${escapeHtml(b)}</option>`
+    `<option value="${escapeHtml(b.name)}" ${f.budderName === b.name ? 'selected' : ''}>${escapeHtml(b.name)}</option>`
   ).join('');
   const statusOpts = Object.entries(STATUS).map(([k, v]) =>
     `<option value="${k}" ${f.status === k ? 'selected' : ''}>${escapeHtml(v)}</option>`
@@ -1449,7 +1496,7 @@ function viewAdminMasters() {
   const sub = State.subSubView || 'admins';
   let body = '';
   if (sub === 'admins') body = renderListEditor('admins', 'รายชื่อ Admin', State.masters.admins);
-  else if (sub === 'budders') body = renderListEditor('budders', 'รายชื่อ Certified Budder', State.masters.budders);
+  else if (sub === 'budders') body = renderBudderEditor();
   else if (sub === 'universities') body = renderUniversityEditor();
   return `
     <div class="row-between mb-3">
@@ -1496,6 +1543,307 @@ function renderListEditor(kind, title, items) {
     </div>`;
 }
 
+// ===== Budder Editor (form-based with credentials + university assignment) =====
+function renderBudderEditor() {
+  const budders = State.masters.budders;
+  const incomplete = budders.filter(b => !b.username || !b.password).length;
+  const rows = budders.map((b, idx) => {
+    const needsSetup = !b.username || !b.password;
+    const unis = (b.universities || []).join(', ') || '—';
+    return `
+      <tr class="clickable" onclick="openBudderEditorModal(${idx})">
+        <td>${idx + 1}</td>
+        <td><strong>${escapeHtml(b.name || '—')}</strong></td>
+        <td class="cell-mono text-mute">${escapeHtml(b.username || '—')}</td>
+        <td class="text-mute text-tiny">${escapeHtml(unis)}</td>
+        <td>${needsSetup ? '<span class="badge" style="background:#FEE2E2;color:#B91C1C;">⚠️ ตั้งค่าก่อนใช้</span>' : '<span class="badge status-closed"><span class="badge-dot"></span>พร้อมใช้</span>'}</td>
+        <td style="text-align: right;">
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openBudderEditorModal(${idx})">แก้ไข</button>
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">รายชื่อ Certified Budder</div>
+        <button class="btn btn-primary btn-sm" onclick="openBudderEditorModal(-1)">+ เพิ่ม Budder</button>
+      </div>
+      <div class="card-body">
+        ${incomplete > 0 ? `
+          <div style="background:#FEF3C7;color:#92400E;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;">
+            ⚠️ มี <strong>${incomplete}</strong> Budder ที่ยังไม่ได้ตั้ง username/password — คลิกเพื่อตั้งค่าก่อนใช้งาน
+          </div>
+        ` : ''}
+        ${budders.length === 0 ? `
+          <div class="empty">
+            <div class="empty-icon">👥</div>
+            <div class="empty-title">ยังไม่มี Certified Budder</div>
+            <div class="empty-desc">กดปุ่ม "+ เพิ่ม Budder" เพื่อเริ่ม</div>
+          </div>
+        ` : `
+          <div class="table-scroll">
+            <table class="table" style="min-width: auto;">
+              <thead><tr>
+                <th style="width:50px;">#</th>
+                <th>ชื่อ</th>
+                <th>Username</th>
+                <th>มหาลัยที่ดูแล</th>
+                <th>สถานะ</th>
+                <th></th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`}
+      </div>
+    </div>`;
+}
+
+// State สำหรับ tracking universities ที่ถูกเอาออกระหว่าง edit
+const BudderEditState = { editingIdx: -1, originalUnis: [], pendingSave: null };
+
+function openBudderEditorModal(idx) {
+  const isNew = idx === -1;
+  const b = isNew ? { name: '', username: '', password: '', universities: [] } : State.masters.budders[idx];
+  if (!b) return;
+  BudderEditState.editingIdx = idx;
+  BudderEditState.originalUnis = (b.universities || []).slice();
+
+  const uniCheckboxes = State.masters.universities.map(u => {
+    const checked = (b.universities || []).includes(u.prefix);
+    return `
+      <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; border:1.5px solid var(--border); border-radius:8px; cursor:pointer; ${checked ? 'background:var(--brand-soft); border-color:var(--brand);' : ''}">
+        <input type="checkbox" class="budder-uni-cb" value="${escapeHtml(u.prefix)}" ${checked ? 'checked' : ''}>
+        <span><strong>${escapeHtml(u.prefix)}</strong> · ${escapeHtml(u.name)}</span>
+      </label>`;
+  }).join('');
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">${isNew ? '+ เพิ่ม Certified Budder' : 'แก้ไข — ' + escapeHtml(b.name || '(ไม่มีชื่อ)')}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid mb-3">
+        <div class="field">
+          <label class="field-label">ชื่อ-นามสกุล <span class="req">*</span></label>
+          <input class="input" type="text" id="be-name" value="${escapeHtml(b.name || '')}" required>
+        </div>
+        <div class="field">
+          <label class="field-label">Username <span class="req">*</span></label>
+          <input class="input" type="text" id="be-username" value="${escapeHtml(b.username || '')}" placeholder="เช่น somchai" required>
+          <div class="field-hint">a-z, 0-9, _ เท่านั้น (3-30 ตัว) · ห้ามซ้ำ</div>
+        </div>
+        <div class="field full">
+          <label class="field-label">Password <span class="req">*</span></label>
+          <div style="display:flex; gap:8px;">
+            <input class="input" type="password" id="be-password" value="${escapeHtml(b.password || '')}" placeholder="อย่างน้อย 6 ตัว" required style="flex:1;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleBudderPwView()" id="be-pw-toggle">👁 แสดง</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-section-title">มหาวิทยาลัยที่ดูแล</div>
+      ${State.masters.universities.length === 0 ? `
+        <div style="background:var(--surface-2); padding:14px; border-radius:8px; color:var(--text-2); font-size:13px;">
+          ยังไม่มีรายชื่อมหาวิทยาลัยในระบบ — ไปเพิ่มที่แท็บ "มหาวิทยาลัย" ก่อน
+        </div>
+      ` : `
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; margin-bottom:12px;">
+          ${uniCheckboxes}
+        </div>
+        <div class="text-mute text-tiny">เลือกได้หลายมหาลัย — Budder จะเห็นเฉพาะใบงานของมหาลัยที่ติ๊กไว้</div>
+      `}
+    </div>
+    <div class="modal-footer">
+      ${!isNew ? `<button class="btn btn-danger" onclick="deleteBudder(${idx})" style="margin-right:auto;">🗑 ลบ Budder</button>` : ''}
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="saveBudderEditor()">บันทึก</button>
+    </div>
+  `);
+
+  // Wire checkbox visual update
+  setTimeout(() => {
+    $$('.budder-uni-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const label = cb.parentElement;
+        if (cb.checked) {
+          label.style.background = 'var(--brand-soft)';
+          label.style.borderColor = 'var(--brand)';
+        } else {
+          label.style.background = '';
+          label.style.borderColor = 'var(--border)';
+        }
+      });
+    });
+  }, 30);
+}
+
+function toggleBudderPwView() {
+  const input = $('#be-password');
+  const btn = $('#be-pw-toggle');
+  if (!input || !btn) return;
+  if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈 ซ่อน'; }
+  else { input.type = 'password'; btn.textContent = '👁 แสดง'; }
+}
+
+async function saveBudderEditor() {
+  const isNew = BudderEditState.editingIdx === -1;
+  const name = $('#be-name').value.trim();
+  const username = $('#be-username').value.trim().toLowerCase();
+  const password = $('#be-password').value;
+  const universities = $$('.budder-uni-cb').filter(cb => cb.checked).map(cb => cb.value);
+
+  // Validate
+  if (!name) { toast('กรอกชื่อ', 'error'); return; }
+  if (!/^[a-z0-9_]{3,30}$/.test(username)) {
+    toast('Username ต้องเป็น a-z, 0-9, _ เท่านั้น (3-30 ตัว)', 'error'); return;
+  }
+  if (password.length < 6) { toast('Password ต้องอย่างน้อย 6 ตัว', 'error'); return; }
+  // Username uniqueness
+  const dup = State.masters.budders.find((b, idx) =>
+    idx !== BudderEditState.editingIdx && b.username && b.username.toLowerCase() === username
+  );
+  if (dup) { toast(`Username "${username}" ถูกใช้แล้วโดย ${dup.name}`, 'error'); return; }
+
+  // ----- Q3: Check removed universities + active tickets -----
+  if (!isNew) {
+    const oldUnis = BudderEditState.originalUnis;
+    const removed = oldUnis.filter(u => !universities.includes(u));
+    const oldBudder = State.masters.budders[BudderEditState.editingIdx];
+    if (removed.length > 0 && oldBudder && oldBudder.name) {
+      // หา active tickets ของ budder คนนี้ ที่ universityPrefix อยู่ใน removed
+      const affected = State.tickets.filter(t =>
+        t.budderName === oldBudder.name
+        && removed.includes(t.universityPrefix)
+        && (t.status === 'accepted' || t.status === 'on_hold')
+      );
+      if (affected.length > 0) {
+        showRemoveUniWarning({ name, username, password, universities }, oldBudder, removed, affected);
+        return;
+      }
+    }
+  }
+
+  await commitBudderSave({ name, username, password, universities }, null);
+}
+
+function showRemoveUniWarning(newBudder, oldBudder, removedUnis, affectedTickets) {
+  // เก็บ pending data ใน state ไว้ (หลีกเลี่ยง JSON injection ใน HTML)
+  BudderEditState.pendingSave = newBudder;
+  const ticketList = affectedTickets.map(t =>
+    `<div style="padding:6px 0; border-bottom:1px solid var(--border); font-size:13px;">
+       <span class="ticket-id">${escapeHtml(t.id)}</span>
+       <span class="text-mute"> · ${escapeHtml(t.universityName)} · ${escapeHtml(t.buddyNickname || t.buddyLineId)} · </span>
+       <span class="badge status-${t.status}"><span class="badge-dot"></span>${STATUS[t.status]}</span>
+     </div>`).join('');
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">⚠️ ยืนยันการเอามหาลัยออก</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:14px;">
+        <strong>${escapeHtml(oldBudder.name)}</strong> กำลังทำงาน
+        <strong>${affectedTickets.length}</strong> ใบของมหาลัย
+        <strong>${escapeHtml(removedUnis.join(', '))}</strong> อยู่:
+      </p>
+      <div style="background:var(--surface-2); padding:12px; border-radius:8px; max-height:200px; overflow-y:auto;">
+        ${ticketList}
+      </div>
+      <p class="mt-3 text-small">เลือกการดำเนินการ:</p>
+    </div>
+    <div class="modal-footer" style="flex-direction:column; align-items:stretch; gap:8px;">
+      <button class="btn btn-success" onclick="commitPendingBudderSave('keep')">
+        ✓ เก็บงานไว้ (Budder ทำต่อจนจบ)
+      </button>
+      <button class="btn btn-danger" onclick="commitPendingBudderSave('release')">
+        🔄 Release งานทั้งหมดคืน pool
+      </button>
+      <button class="btn btn-secondary" onclick="cancelPendingBudderSave()">ยกเลิกการแก้ไข</button>
+    </div>
+  `);
+}
+
+function cancelPendingBudderSave() {
+  BudderEditState.pendingSave = null;
+  closeModal();
+}
+
+async function commitPendingBudderSave(releaseAction) {
+  const pending = BudderEditState.pendingSave;
+  if (!pending) { toast('ไม่พบข้อมูลที่จะบันทึก', 'error'); closeModal(); return; }
+  BudderEditState.pendingSave = null;
+  await commitBudderSave(pending, releaseAction);
+}
+
+async function commitBudderSave(newBudder, releaseAction) {
+  const isNew = BudderEditState.editingIdx === -1;
+
+  // Build new budder record
+  const record = {
+    name: newBudder.name,
+    username: newBudder.username,
+    password: newBudder.password,
+    universities: newBudder.universities
+  };
+
+  // If releasing, update affected tickets first
+  if (releaseAction === 'release' && !isNew) {
+    const oldBudder = State.masters.budders[BudderEditState.editingIdx];
+    const removed = BudderEditState.originalUnis.filter(u => !newBudder.universities.includes(u));
+    const affected = State.tickets.filter(t =>
+      t.budderName === oldBudder.name
+      && removed.includes(t.universityPrefix)
+      && (t.status === 'accepted' || t.status === 'on_hold')
+    );
+    for (const t of affected) {
+      const updated = { ...t, status: 'reassigned', budderName: null, acceptedAt: null, holdStartedAt: null };
+      await Store.saveTicket(updated);
+    }
+    if (affected.length > 0) toast(`Release ${affected.length} ใบกลับเข้า pool แล้ว`, 'success');
+  }
+
+  // If renaming budder, update budderName in all their tickets
+  if (!isNew) {
+    const oldBudder = State.masters.budders[BudderEditState.editingIdx];
+    if (oldBudder.name && oldBudder.name !== record.name) {
+      const owned = State.tickets.filter(t => t.budderName === oldBudder.name);
+      for (const t of owned) {
+        await Store.saveTicket({ ...t, budderName: record.name });
+      }
+    }
+    State.masters.budders[BudderEditState.editingIdx] = record;
+  } else {
+    State.masters.budders.push(record);
+  }
+
+  const ok = await Store.saveMasters();
+  if (ok) {
+    closeModal();
+    toast(isNew ? `เพิ่ม ${record.name} เรียบร้อย` : `บันทึก ${record.name} เรียบร้อย`, 'success');
+  }
+}
+
+async function deleteBudder(idx) {
+  const b = State.masters.budders[idx];
+  if (!b) return;
+  // ตรวจ active tickets
+  const active = State.tickets.filter(t =>
+    t.budderName === b.name && (t.status === 'accepted' || t.status === 'on_hold')
+  );
+  if (active.length > 0) {
+    if (!confirm(`${b.name} กำลังทำงาน ${active.length} ใบอยู่ — ลบจะ release งานเหล่านี้คืน pool · ยืนยัน?`)) return;
+    for (const t of active) {
+      await Store.saveTicket({ ...t, status: 'reassigned', budderName: null, acceptedAt: null, holdStartedAt: null });
+    }
+  } else {
+    if (!confirm(`ลบ Budder "${b.name}" ?`)) return;
+  }
+  State.masters.budders.splice(idx, 1);
+  const ok = await Store.saveMasters();
+  if (ok) { closeModal(); toast(`ลบ ${b.name} แล้ว`, 'success'); }
+}
+
 function renderUniversityEditor() {
   const rows = State.masters.universities.map((u, idx) => `
     <tr>
@@ -1517,8 +1865,8 @@ function renderUniversityEditor() {
             <input class="input" type="text" id="new-uni-name" placeholder="เช่น จุฬาลงกรณ์มหาวิทยาลัย">
           </div>
           <div class="field" style="flex: 1; min-width: 100px;">
-            <label class="field-label">Prefix (2-4 ตัวอักษร)</label>
-            <input class="input" type="text" id="new-uni-prefix" placeholder="เช่น CU" maxlength="4" style="text-transform: uppercase;">
+            <label class="field-label">Prefix (2-5 ตัวอักษร)</label>
+            <input class="input" type="text" id="new-uni-prefix" placeholder="เช่น CU" maxlength="5" style="text-transform: uppercase;">
           </div>
           <button type="submit" class="btn btn-primary">+ เพิ่ม</button>
         </form>
@@ -1596,7 +1944,7 @@ function viewAdminReports() {
   });
 
   const budderStats = {};
-  State.masters.budders.forEach(b => { budderStats[b] = { accepted: 0, closed: 0, dorms: 0, acceptMsSum: 0, acceptMsCount: 0, closeMsSum: 0, closeMsCount: 0 }; });
+  State.masters.budders.forEach(b => { budderStats[b.name] = { accepted: 0, closed: 0, dorms: 0, acceptMsSum: 0, acceptMsCount: 0, closeMsSum: 0, closeMsCount: 0 }; });
   inRange.forEach(t => {
     if (!t.budderName) return;
     if (!budderStats[t.budderName]) budderStats[t.budderName] = { accepted: 0, closed: 0, dorms: 0, acceptMsSum: 0, acceptMsCount: 0, closeMsSum: 0, closeMsCount: 0 };
@@ -1922,18 +2270,18 @@ function renderReportsCharts() {
   // 4. Budder Avg Accept Time (NEW)
   const budderAcceptAvg = {};
   State.masters.budders.forEach(b => {
-    const times = inRange.filter(t => t.budderName === b && t.acceptedAt && t.createdAt)
+    const times = inRange.filter(t => t.budderName === b.name && t.acceptedAt && t.createdAt)
       .map(t => new Date(t.acceptedAt) - new Date(t.createdAt));
-    if (times.length > 0) budderAcceptAvg[b] = times.reduce((s, v) => s + v, 0) / times.length;
+    if (times.length > 0) budderAcceptAvg[b.name] = times.reduce((s, v) => s + v, 0) / times.length;
   });
   renderAvgTimeChart('chart-budder-accept', budderAcceptAvg, SLA.acceptWithin, '1 ชม.');
 
   // 5. Budder Avg Close Time (NEW)
   const budderCloseAvg = {};
   State.masters.budders.forEach(b => {
-    const times = inRange.filter(t => t.budderName === b && t.acceptedAt && t.closedAt)
+    const times = inRange.filter(t => t.budderName === b.name && t.acceptedAt && t.closedAt)
       .map(t => Math.max(0, new Date(t.closedAt) - new Date(t.acceptedAt) - (t.totalHeldMs || 0)));
-    if (times.length > 0) budderCloseAvg[b] = times.reduce((s, v) => s + v, 0) / times.length;
+    if (times.length > 0) budderCloseAvg[b.name] = times.reduce((s, v) => s + v, 0) / times.length;
   });
   renderAvgTimeChart('chart-budder-close', budderCloseAvg, SLA.closeWithin, '2 ชม.');
 
@@ -1973,7 +2321,7 @@ function renderReportsCharts() {
   const budderCtx = $('#chart-budder');
   if (budderCtx) {
     const budderStats = {};
-    State.masters.budders.forEach(b => { budderStats[b] = { accepted: 0, closed: 0, dorms: 0 }; });
+    State.masters.budders.forEach(b => { budderStats[b.name] = { accepted: 0, closed: 0, dorms: 0 }; });
     inRange.forEach(t => {
       if (!t.budderName) return;
       if (!budderStats[t.budderName]) budderStats[t.budderName] = { accepted: 0, closed: 0, dorms: 0 };
@@ -2015,8 +2363,9 @@ function renderReportsCharts() {
    BUDDER VIEWS
    ========================================================= */
 function viewBudderAvailable() {
+  const unis = getBudderUniversities();
   const list = State.tickets
-    .filter(isInAvailablePool)
+    .filter(t => isInAvailablePool(t) && unis.includes(t.universityPrefix))
     .sort((a, b) => {
       const prioRank = { high: 0, medium: 1, normal: 2 };
       const pa = prioRank[a.priority] ?? 2;
@@ -2024,14 +2373,24 @@ function viewBudderAvailable() {
       if (pa !== pb) return pa - pb;
       return new Date(a.createdAt) - new Date(b.createdAt);
     });
+  if (unis.length === 0) {
+    return `<div class="card"><div class="empty">
+      <div class="empty-icon">🎓</div>
+      <div class="empty-title">ยังไม่มีมหาลัยที่ได้รับมอบหมาย</div>
+      <div class="empty-desc">ติดต่อ Admin เพื่อ assign มหาลัยให้คุณดูแล</div>
+    </div></div>`;
+  }
   if (list.length === 0) {
     return `<div class="card"><div class="empty">
       <div class="empty-icon">✨</div>
       <div class="empty-title">ไม่มีงานที่รอรับในตอนนี้</div>
-      <div class="empty-desc">มาเช็คอีกครั้งสักพักครับ</div>
+      <div class="empty-desc">มหาลัยที่ดูแล: ${unis.join(', ')} · มาเช็คอีกครั้งสักพักครับ</div>
     </div></div>`;
   }
-  return `<div class="ticket-list">${list.map(t => renderBudderTicketCard(t, 'available')).join('')}</div>`;
+  return `
+    <div class="text-mute text-tiny mb-2">มหาลัยที่ดูแล: <strong>${unis.join(', ')}</strong></div>
+    <div class="ticket-list">${list.map(t => renderBudderTicketCard(t, 'available')).join('')}</div>
+  `;
 }
 
 function viewBudderMine() {
@@ -2361,6 +2720,14 @@ async function acceptTicket(id) {
   const t = State.tickets.find(x => x.id === id);
   if (!t) return;
   if (!isInAvailablePool(t)) { toast('งานนี้ไม่สามารถรับได้แล้ว', 'error'); return; }
+  // Defensive: ตรวจว่า Budder มีสิทธิ์ดูแลมหาลัยนี้ (filter น่าจะกันไว้แล้ว แต่กันเหนียว)
+  if (State.role === 'budder') {
+    const unis = getBudderUniversities();
+    if (!unis.includes(t.universityPrefix)) {
+      toast('ไม่มีสิทธิ์รับงานของมหาลัยนี้ — ติดต่อ Admin', 'error');
+      return;
+    }
+  }
   const updated = { ...t, status: 'accepted', acceptedAt: nowISO(), budderName: State.profileName };
   const ok = await Store.saveTicket(updated);
   if (ok) toast(`รับงาน ${id} เรียบร้อย`, 'success');
@@ -2449,7 +2816,7 @@ async function addUniversity() {
   const name = $('#new-uni-name').value.trim();
   const prefix = $('#new-uni-prefix').value.trim().toUpperCase();
   if (!name || !prefix) { toast('กรอกข้อมูลให้ครบ', 'error'); return; }
-  if (!/^[A-Z0-9]{2,4}$/.test(prefix)) { toast('Prefix ต้องเป็น A-Z หรือ 0-9 ความยาว 2-4 ตัว', 'error'); return; }
+  if (!/^[A-Z0-9]{2,5}$/.test(prefix)) { toast('Prefix ต้องเป็น A-Z หรือ 0-9 ความยาว 2-5 ตัว', 'error'); return; }
   if (State.masters.universities.some(u => u.prefix === prefix)) { toast('Prefix นี้ใช้แล้ว', 'error'); return; }
   State.masters.universities.push({ name, prefix });
   if (!State.masters.counters[prefix]) State.masters.counters[prefix] = 0;
@@ -2645,8 +3012,8 @@ function attachLoginEvents() {
     e.preventDefault();
     const u = $('#login-user').value.trim();
     const p = $('#login-pass').value;
-    if (tryLogin(u, p)) render();
-    else $('#login-err').innerHTML = `<div class="login-error">Username หรือ Password ไม่ถูกต้อง</div>`;
+    if (tryLogin(u, p).ok) render();
+    else $('#login-err').innerHTML = `<div class="login-error">Username หรือ Password ไม่ถูกต้อง<br><span style="font-size:11px;opacity:.8;">(Budder ต้องให้ Admin ตั้ง credentials ก่อนจึงจะ login ได้)</span></div>`;
   });
 }
 
@@ -2674,8 +3041,29 @@ function attachShellEvents() {
 }
 
 function showUserMenu() {
-  const list = State.role === 'admin' ? State.masters.admins : State.masters.budders;
-  const opts = list.map(n => `<option value="${escapeHtml(n)}" ${State.profileName === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  if (State.role === 'budder') {
+    // Budder login ด้วย credentials ส่วนตัว — switch profile ไม่ได้ มีแค่ logout
+    const b = getCurrentBudder();
+    const unis = b ? (b.universities || []) : [];
+    showModal(`
+      <div class="modal-header">
+        <div class="modal-title">โปรไฟล์</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-row"><div class="key">ชื่อ</div><div class="val">${escapeHtml(State.profileName)}</div></div>
+        <div class="detail-row"><div class="key">Username</div><div class="val cell-mono">${escapeHtml(b?.username || '—')}</div></div>
+        <div class="detail-row"><div class="key">มหาลัยที่ดูแล</div><div class="val">${unis.length ? escapeHtml(unis.join(', ')) : '—'}</div></div>
+        <div class="mt-3 text-mute text-tiny">⚠️ ติดต่อ Admin หากต้องการเปลี่ยนข้อมูล credentials หรือมหาลัย</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="logout(); closeModal();">ออกจากระบบ</button>
+        <button class="btn btn-secondary" onclick="closeModal()">ปิด</button>
+      </div>`);
+    return;
+  }
+  // Admin: ใช้ shared login → switch profile ได้
+  const opts = State.masters.admins.map(n => `<option value="${escapeHtml(n)}" ${State.profileName === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
   showModal(`
     <div class="modal-header">
       <div class="modal-title">โปรไฟล์</div>
@@ -2683,7 +3071,7 @@ function showUserMenu() {
     </div>
     <div class="modal-body">
       <div class="field mb-3">
-        <label class="field-label">เปลี่ยนชื่อ${State.role === 'admin' ? ' Admin' : ' Certified Budder'}</label>
+        <label class="field-label">เปลี่ยนชื่อ Admin</label>
         <select class="select" id="switch-name">${opts}</select>
       </div>
     </div>
@@ -2984,9 +3372,21 @@ async function performImport(mode) {
       (data.masters.admins || []).forEach(a => existingAdmins.add(a));
       State.masters.admins = Array.from(existingAdmins);
 
-      const existingBudders = new Set(State.masters.budders);
-      (data.masters.budders || []).forEach(b => existingBudders.add(b));
-      State.masters.budders = Array.from(existingBudders);
+      // Merge budders: dedupe by username (or name if no username)
+      const existingByKey = new Map();
+      State.masters.budders.forEach(b => {
+        if (typeof b === 'object' && b) existingByKey.set((b.username || b.name || '').toLowerCase(), b);
+      });
+      (data.masters.budders || []).forEach(b => {
+        if (typeof b === 'string') {
+          const key = b.toLowerCase();
+          if (!existingByKey.has(key)) existingByKey.set(key, { name: b, username: null, password: null, universities: [] });
+        } else if (b && typeof b === 'object') {
+          const key = (b.username || b.name || '').toLowerCase();
+          if (!existingByKey.has(key)) existingByKey.set(key, b);
+        }
+      });
+      State.masters.budders = Array.from(existingByKey.values());
 
       const existingUnis = new Map(State.masters.universities.map(u => [u.prefix, u]));
       (data.masters.universities || []).forEach(u => {
@@ -3051,7 +3451,8 @@ Object.assign(window, {
   viewImageFullscreen, addListItem, removeListItem, addUniversity, removeUniversity,
   firstTimeAdminSetup, switchProfile, closeModal, logout, removeImageAt,
   goEditTicket, resetFirebaseConfig, State, renderInner, viewAdminCreate,
-  exportBackup, openImportDialog, showImportPreview, performImport
+  exportBackup, openImportDialog, showImportPreview, performImport,
+  openBudderEditorModal, saveBudderEditor, commitBudderSave, commitPendingBudderSave, cancelPendingBudderSave, deleteBudder, toggleBudderPwView
 });
 
 init();
