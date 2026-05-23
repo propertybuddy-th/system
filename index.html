@@ -657,6 +657,12 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
 
 // ============ EMBEDDED CONFIG (optional) ============
 // Team lead can edit this object and skip the setup wizard for users
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
   authDomain: "propertybuddy-ed25d.firebaseapp.com",
@@ -665,6 +671,9 @@ const firebaseConfig = {
   messagingSenderId: "100054480079",
   appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
 };
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
 // ============ CONFIG ============
 const CREDENTIALS = {
