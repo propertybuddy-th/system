@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Property Buddy — Certified Budder Management</title>
-<link rel="icon" type="image/svg+xml" href="logo propertybuddy.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -657,14 +656,16 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
 
 // ============ EMBEDDED CONFIG (optional) ============
 // Team lead can edit this object and skip the setup wizard for users
-const EMBEDDED_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
-  authDomain: "propertybuddy-ed25d.firebaseapp.com",
-  projectId: "propertybuddy-ed25d",
-  storageBucket: "propertybuddy-ed25d.firebasestorage.app",
-  messagingSenderId: "100054480079",
-  appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
-};
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
 
 // ============ CONFIG ============
 const CREDENTIALS = {
@@ -915,6 +916,18 @@ const Store = {
       return true;
     } catch (e) {
       toast('บันทึกรูปภาพไม่สำเร็จ — รูปอาจใหญ่เกินไป (1MB/doc)', 'error');
+      return false;
+    }
+  },
+
+  // ลบใบงาน (ใช้ตอน migrate ticket ID เวลามหาลัยเปลี่ยน prefix)
+  async deleteTicket(ticketId) {
+    try {
+      await this.db.collection('tickets').doc(ticketId).delete();
+      await this.db.collection('images').doc(ticketId).delete().catch(() => {});
+      return true;
+    } catch (e) {
+      console.error('Delete ticket failed:', e);
       return false;
     }
   },
@@ -1494,7 +1507,7 @@ function viewAdminCreate(editingId = null) {
 function viewAdminMasters() {
   const sub = State.subSubView || 'admins';
   let body = '';
-  if (sub === 'admins') body = renderListEditor('admins', 'รายชื่อ Admin', State.masters.admins);
+  if (sub === 'admins') body = renderAdminEditor();
   else if (sub === 'budders') body = renderBudderEditor();
   else if (sub === 'universities') body = renderUniversityEditor();
   return `
@@ -1540,6 +1553,128 @@ function renderListEditor(kind, title, items) {
           </div>`}
       </div>
     </div>`;
+}
+
+// ===== Admin Editor (แก้ชื่อ + cascade update ใบงานที่ Admin คนนี้เปิด) =====
+const AdminEditState = { editingIdx: -1 };
+
+function renderAdminEditor() {
+  const admins = State.masters.admins;
+  const rows = admins.map((name, idx) => {
+    const ticketCount = State.tickets.filter(t => t.adminName === name).length;
+    const isMe = State.role === 'admin' && State.profileName === name;
+    return `
+      <tr class="clickable" onclick="openAdminEditorModal(${idx})">
+        <td>${idx + 1}</td>
+        <td>
+          <strong>${escapeHtml(name)}</strong>
+          ${isMe ? '<span class="badge" style="background:var(--brand-soft);color:var(--brand);margin-left:6px;font-size:11px;">คุณ</span>' : ''}
+        </td>
+        <td class="cell-mono text-mute">${ticketCount} ใบ</td>
+        <td style="text-align: right; white-space: nowrap;">
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openAdminEditorModal(${idx})">แก้ไข</button>
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); removeListItem('admins', ${idx})">ลบ</button>
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="card-header"><div class="card-title">รายชื่อ Admin</div></div>
+      <div class="card-body">
+        <form class="row mb-3" onsubmit="event.preventDefault(); addListItem('admins');">
+          <input class="input" type="text" id="new-admins" placeholder="ชื่อ Admin ใหม่..." style="flex: 1;">
+          <button type="submit" class="btn btn-primary">+ เพิ่ม</button>
+        </form>
+        ${admins.length === 0 ? `
+          <div class="empty"><div class="empty-icon">👤</div><div class="empty-title">ยังไม่มีรายชื่อ Admin</div></div>
+        ` : `
+          <div class="table-scroll">
+            <table class="table" style="min-width: auto;">
+              <thead><tr>
+                <th style="width:50px;">#</th>
+                <th>ชื่อ</th>
+                <th>ใบงานที่เปิด</th>
+                <th></th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`}
+        <div class="text-mute text-tiny mt-3">
+          💡 Admin ทุกคนใช้ user/pass เดียวกัน (<code>admin</code> / <code>welovepropertybuddy</code>) แล้วเลือกชื่อตัวเองหลัง login
+        </div>
+      </div>
+    </div>`;
+}
+
+function openAdminEditorModal(idx) {
+  const name = State.masters.admins[idx];
+  if (name == null) return;
+  AdminEditState.editingIdx = idx;
+  const ticketCount = State.tickets.filter(t => t.adminName === name).length;
+  const isMe = State.role === 'admin' && State.profileName === name;
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">แก้ไขชื่อ Admin</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field mb-3">
+        <label class="field-label">ชื่อ Admin <span class="req">*</span></label>
+        <input class="input" type="text" id="admin-edit-name" value="${escapeHtml(name)}" required>
+      </div>
+      <div style="background:var(--surface-2); padding:12px 14px; border-radius:8px; font-size:13px;">
+        <div class="text-mute text-tiny">สถิติปัจจุบัน:</div>
+        <div class="mt-1">📄 ใบงานที่ Admin คนนี้เปิด: <strong>${ticketCount}</strong> ใบ</div>
+        ${ticketCount > 0 ? '<div class="text-mute text-tiny mt-2">⚠️ ถ้าเปลี่ยนชื่อ ระบบจะอัปเดต <code>adminName</code> ในทุกใบงานให้เป็นชื่อใหม่</div>' : ''}
+        ${isMe ? '<div class="text-mute text-tiny mt-2">ℹ️ คุณกำลังแก้ชื่อตัวเอง — session ปัจจุบันจะอัปเดตอัตโนมัติ</div>' : ''}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="saveAdminEditor()">บันทึก</button>
+    </div>
+  `);
+}
+
+async function saveAdminEditor() {
+  const idx = AdminEditState.editingIdx;
+  if (idx < 0) return;
+  const oldName = State.masters.admins[idx];
+  if (oldName == null) return;
+  const newName = $('#admin-edit-name').value.trim();
+  if (!newName) { toast('กรอกชื่อ Admin', 'error'); return; }
+  // Check duplicate (excluding self)
+  const dup = State.masters.admins.find((n, i) => i !== idx && n === newName);
+  if (dup) { toast(`มี Admin ชื่อ "${newName}" อยู่แล้ว`, 'error'); return; }
+  if (newName === oldName) { closeModal(); return; }
+
+  const affected = State.tickets.filter(t => t.adminName === oldName);
+  if (affected.length > 0) {
+    toast(`กำลังอัปเดต ${affected.length} ใบงาน...`, 'info');
+  }
+
+  try {
+    // 1. Update admin in masters
+    State.masters.admins[idx] = newName;
+    await Store.saveMasters();
+
+    // 2. Update all tickets with this adminName
+    for (const t of affected) {
+      await Store.saveTicket({ ...t, adminName: newName });
+    }
+
+    // 3. If renaming current logged-in admin, update session
+    if (State.role === 'admin' && State.profileName === oldName) {
+      State.profileName = newName;
+      try { localStorage.setItem(LS_KEY_PROFILE, newName); } catch (e) {}
+    }
+
+    closeModal();
+    toast(`✓ บันทึก ${newName} เรียบร้อย${affected.length > 0 ? ` · อัปเดต ${affected.length} ใบงาน` : ''}`, 'success');
+  } catch (e) {
+    console.error('Admin rename failed:', e);
+    toast('เกิดข้อผิดพลาด: ' + e.message, 'error');
+  }
 }
 
 // ===== Budder Editor (form-based with credentials + university assignment) =====
@@ -1845,13 +1980,14 @@ async function deleteBudder(idx) {
 
 function renderUniversityEditor() {
   const rows = State.masters.universities.map((u, idx) => `
-    <tr>
+    <tr class="clickable" onclick="openUniversityEditorModal(${idx})">
       <td>${idx + 1}</td>
-      <td>${escapeHtml(u.name)}</td>
+      <td><strong>${escapeHtml(u.name)}</strong></td>
       <td><span class="ticket-id">${escapeHtml(u.prefix)}</span></td>
       <td class="cell-mono text-mute">${State.masters.counters[u.prefix] || 0}</td>
-      <td style="text-align: right;">
-        <button class="btn btn-ghost btn-sm" onclick="removeUniversity(${idx})">ลบ</button>
+      <td style="text-align: right; white-space: nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openUniversityEditorModal(${idx})">แก้ไข</button>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); removeUniversity(${idx})">ลบ</button>
       </td>
     </tr>`).join('');
   return `
@@ -1884,6 +2020,179 @@ function renderUniversityEditor() {
           </div>`}
       </div>
     </div>`;
+}
+
+// ===== University Editor (แก้ไขชื่อ + prefix + migrate tickets) =====
+const UniEditState = { editingIdx: -1, pendingNew: null };
+
+function openUniversityEditorModal(idx) {
+  const u = State.masters.universities[idx];
+  if (!u) return;
+  UniEditState.editingIdx = idx;
+  UniEditState.pendingNew = null;
+  const ticketCount = State.tickets.filter(t => t.universityPrefix === u.prefix).length;
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">แก้ไขมหาวิทยาลัย</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field mb-3">
+        <label class="field-label">ชื่อมหาวิทยาลัย <span class="req">*</span></label>
+        <input class="input" type="text" id="uni-edit-name" value="${escapeHtml(u.name)}" required>
+      </div>
+      <div class="field mb-3">
+        <label class="field-label">Prefix (2-5 ตัวอักษร) <span class="req">*</span></label>
+        <input class="input" type="text" id="uni-edit-prefix" value="${escapeHtml(u.prefix)}" maxlength="5" style="text-transform: uppercase;" required>
+        <div class="field-hint">A-Z, 0-9 เท่านั้น · ห้ามซ้ำกับมหาลัยอื่น</div>
+      </div>
+      <div style="background:var(--surface-2); padding:12px 14px; border-radius:8px; font-size:13px;">
+        <div class="text-mute text-tiny">สถิติปัจจุบัน:</div>
+        <div class="mt-1">📄 ใบงานที่อ้างถึง: <strong>${ticketCount}</strong> ใบ</div>
+        <div>🔢 รหัสใบงานล่าสุด: <strong>PB-${escapeHtml(u.prefix)}-${String(State.masters.counters[u.prefix] || 0).padStart(3, '0')}</strong></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="saveUniversityEditor()">บันทึก</button>
+    </div>
+  `);
+}
+
+async function saveUniversityEditor() {
+  const idx = UniEditState.editingIdx;
+  if (idx < 0) return;
+  const oldUni = State.masters.universities[idx];
+  if (!oldUni) return;
+  const newName = $('#uni-edit-name').value.trim();
+  const newPrefix = $('#uni-edit-prefix').value.trim().toUpperCase();
+
+  // Validate
+  if (!newName) { toast('กรอกชื่อมหาวิทยาลัย', 'error'); return; }
+  if (!/^[A-Z0-9]{2,5}$/.test(newPrefix)) {
+    toast('Prefix ต้องเป็น A-Z หรือ 0-9 ความยาว 2-5 ตัว', 'error'); return;
+  }
+  // Check uniqueness (excluding self)
+  const dup = State.masters.universities.find((u, i) => i !== idx && u.prefix === newPrefix);
+  if (dup) { toast(`Prefix "${newPrefix}" ใช้แล้วโดย ${dup.name}`, 'error'); return; }
+
+  const nameChanged = newName !== oldUni.name;
+  const prefixChanged = newPrefix !== oldUni.prefix;
+  if (!nameChanged && !prefixChanged) { closeModal(); return; }
+
+  const affected = State.tickets.filter(t => t.universityPrefix === oldUni.prefix);
+
+  // ถ้าเปลี่ยน prefix และมี ticket → แสดง warning เพราะ ticket ID จะเปลี่ยนตามด้วย
+  if (prefixChanged && affected.length > 0) {
+    UniEditState.pendingNew = { newName, newPrefix };
+    showUniversityChangeWarning(oldUni, newName, newPrefix, affected);
+    return;
+  }
+  // ไม่กระทบ ticket — commit ทันที
+  await commitUniversityChange(idx, oldUni, newName, newPrefix);
+}
+
+function showUniversityChangeWarning(oldUni, newName, newPrefix, affected) {
+  const prefixChanged = newPrefix !== oldUni.prefix;
+  const exampleOld = affected[0].id;
+  const exampleNew = exampleOld.replace(`PB-${oldUni.prefix}-`, `PB-${newPrefix}-`);
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">⚠️ ยืนยันการแก้ไข — ผลกระทบสำคัญ</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#FEF3C7; color:#92400E; padding:12px 14px; border-radius:8px; margin-bottom:14px; font-size:13px;">
+        การเปลี่ยน Prefix จะส่งผลถึง <strong>${affected.length} ใบงาน</strong> ที่อ้างถึงมหาลัยนี้:
+      </div>
+      <div class="detail-row"><div class="key">ชื่อ</div><div class="val">${escapeHtml(oldUni.name)} → <strong>${escapeHtml(newName)}</strong></div></div>
+      <div class="detail-row"><div class="key">Prefix</div><div class="val">${escapeHtml(oldUni.prefix)} → <strong>${escapeHtml(newPrefix)}</strong></div></div>
+      <div class="detail-row"><div class="key">รหัสใบงาน</div><div class="val">เช่น <code>${escapeHtml(exampleOld)}</code> → <code>${escapeHtml(exampleNew)}</code></div></div>
+      <div class="mt-3 text-mute text-tiny">
+        ระบบจะ:<br>
+        ✓ เปลี่ยนชื่อมหาลัยในทุกใบงาน<br>
+        ${prefixChanged ? '✓ สร้างใบงานใหม่ด้วยรหัสใหม่ (เก็บข้อมูล + รูปครบ)<br>✓ ลบใบงานเก่า<br>✓ อัปเดต Budder ที่ดูแลมหาลัยนี้<br>' : ''}
+        <br>⚠️ อย่าปิด tab จนกว่าจะเสร็จ
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-danger" onclick="confirmUniversityChange()">✓ ดำเนินการต่อ</button>
+    </div>
+  `);
+}
+
+async function confirmUniversityChange() {
+  const idx = UniEditState.editingIdx;
+  const pending = UniEditState.pendingNew;
+  if (idx < 0 || !pending) { closeModal(); return; }
+  const oldUni = State.masters.universities[idx];
+  if (!oldUni) { closeModal(); return; }
+  UniEditState.pendingNew = null;
+  await commitUniversityChange(idx, oldUni, pending.newName, pending.newPrefix);
+}
+
+async function commitUniversityChange(idx, oldUni, newName, newPrefix) {
+  const prefixChanged = newPrefix !== oldUni.prefix;
+  const affected = State.tickets.filter(t => t.universityPrefix === oldUni.prefix);
+
+  if (affected.length > 0) {
+    toast(`กำลังอัปเดต ${affected.length} ใบงาน...`, 'info');
+  }
+
+  try {
+    // 1. Update university record (in memory)
+    State.masters.universities[idx] = { name: newName, prefix: newPrefix };
+
+    // 2. Migrate counter
+    if (prefixChanged) {
+      const oldCount = State.masters.counters[oldUni.prefix] || 0;
+      const newCount = State.masters.counters[newPrefix] || 0;
+      State.masters.counters[newPrefix] = Math.max(oldCount, newCount);
+      delete State.masters.counters[oldUni.prefix];
+    }
+
+    // 3. Update Budder.universities arrays (replace old prefix with new)
+    if (prefixChanged) {
+      State.masters.budders = State.masters.budders.map(b => {
+        if (b.universities && b.universities.includes(oldUni.prefix)) {
+          return { ...b, universities: b.universities.map(p => p === oldUni.prefix ? newPrefix : p) };
+        }
+        return b;
+      });
+    }
+
+    // 4. Save masters first (so subscribers see consistent state)
+    await Store.saveMasters();
+
+    // 5. Migrate each ticket
+    for (const t of affected) {
+      if (prefixChanged) {
+        // ต้องเปลี่ยน ticket ID — สร้างใหม่ + ลบเก่า
+        const newId = t.id.replace(`PB-${oldUni.prefix}-`, `PB-${newPrefix}-`);
+        const newTicket = { ...t, id: newId, universityPrefix: newPrefix, universityName: newName };
+        // โหลดรูปจาก ID เก่า
+        const imgs = await Store.loadImages(t.id);
+        // บันทึกใบงานใหม่ก่อน (data safety)
+        await Store.saveTicket(newTicket);
+        // บันทึกรูปด้วย ID ใหม่
+        if (imgs && imgs.length > 0) {
+          await Store.saveImages(newId, imgs);
+        }
+        // ลบใบงานเก่า (รวมรูป)
+        await Store.deleteTicket(t.id);
+      } else {
+        // แค่เปลี่ยนชื่อ → update field ใน ticket
+        await Store.saveTicket({ ...t, universityName: newName });
+      }
+    }
+
+    closeModal();
+    toast(`✓ บันทึก ${newName} (${newPrefix}) เรียบร้อย${affected.length > 0 ? ` · อัปเดต ${affected.length} ใบงาน` : ''}`, 'success');
+  } catch (e) {
+    console.error('University change failed:', e);
+    toast('เกิดข้อผิดพลาดระหว่างการอัปเดต: ' + e.message, 'error');
+  }
 }
 
 /* =========================================================
@@ -3451,7 +3760,9 @@ Object.assign(window, {
   firstTimeAdminSetup, switchProfile, closeModal, logout, removeImageAt,
   goEditTicket, resetFirebaseConfig, State, renderInner, viewAdminCreate,
   exportBackup, openImportDialog, showImportPreview, performImport,
-  openBudderEditorModal, saveBudderEditor, commitBudderSave, commitPendingBudderSave, cancelPendingBudderSave, deleteBudder, toggleBudderPwView
+  openBudderEditorModal, saveBudderEditor, commitBudderSave, commitPendingBudderSave, cancelPendingBudderSave, deleteBudder, toggleBudderPwView,
+  openUniversityEditorModal, saveUniversityEditor, confirmUniversityChange, commitUniversityChange,
+  openAdminEditorModal, saveAdminEditor
 });
 
 init();
