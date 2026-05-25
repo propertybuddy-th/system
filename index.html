@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-<link rel="icon" type="image/svg+xml" href="logo propertybuddy.svg">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Property Buddy — Certified Budder Management</title>
@@ -559,6 +558,28 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
 .dorm-row .remove-btn:hover { background: #FEE2E2; color: #DC2626; }
 @media (max-width: 540px) { .dorm-row { grid-template-columns: 1fr auto; } .dorm-row input:nth-child(2) { grid-column: 1 / -1; } }
 
+/* ============ CLOSE OUTCOME OPTIONS ============ */
+.close-outcome-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.close-outcome-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  cursor: pointer; transition: all .15s; background: var(--surface);
+}
+.close-outcome-option:hover { border-color: var(--brand); background: var(--brand-soft); }
+.close-outcome-option.selected { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.1); }
+.close-outcome-option input[type="radio"] { margin: 0; flex-shrink: 0; }
+.close-outcome-content { flex: 1; }
+.close-outcome-emoji { font-size: 20px; line-height: 1; margin-bottom: 4px; }
+.close-outcome-label { font-size: 13px; font-weight: 500; line-height: 1.35; }
+@media (max-width: 540px) { .close-outcome-grid { grid-template-columns: 1fr; } }
+
+/* ============ OUTCOME BADGE (สำหรับแสดงในใบงาน) ============ */
+.outcome-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 500;
+  background: var(--surface-2);
+}
+
 /* ============ SUBTABS ============ */
 .subtabs { display: flex; gap: 6px; margin-bottom: 18px; background: var(--surface-2); padding: 4px; border-radius: 10px; width: fit-content; max-width: 100%; overflow-x: auto; }
 .subtab { padding: 8px 16px; font-size: 13px; font-weight: 500; color: var(--text-2); border-radius: 7px; white-space: nowrap; }
@@ -656,29 +677,23 @@ code { font-family: 'SF Mono', Menlo, monospace; background: var(--surface-2); p
    ========================================================= */
 
 // ============ EMBEDDED CONFIG (optional) ============
-
 // Team lead can edit this object and skip the setup wizard for users
-
-const EMBEDDED_FIREBASE_CONFIG = {
-
-  apiKey: "AIzaSyDgePcwmZcZ80x4YZh0Cyy6f5mPOZ7VFVM",
-
-  authDomain: "propertybuddy-ed25d.firebaseapp.com",
-
-  projectId: "propertybuddy-ed25d",
-
-  storageBucket: "propertybuddy-ed25d.firebasestorage.app",
-
-  messagingSenderId: "100054480079",
-
-  appId: "1:100054480079:web:d649cf27456ab3e731f3ba"
-
-};
+const EMBEDDED_FIREBASE_CONFIG = null;
+// Example:
+// const EMBEDDED_FIREBASE_CONFIG = {
+//   apiKey: "AIza...",
+//   authDomain: "your-app.firebaseapp.com",
+//   projectId: "your-app",
+//   storageBucket: "your-app.appspot.com",
+//   messagingSenderId: "1234",
+//   appId: "1:1234:web:abc"
+// };
 
 // ============ CONFIG ============
 const CREDENTIALS = {
-  admin: { user: 'admin', pass: 'welovepropertybuddy', role: 'admin' }
-  // Budder login moved to per-user (stored in masters.budders[].username/password)
+  adminMaster: { user: 'adminmaster', pass: 'weareowner', role: 'admin_master' }
+  // Regular Admin login: per-user (stored in masters.admins[].username/password) — ตั้งโดย Admin Master
+  // Budder login: per-user (stored in masters.budders[].username/password) — ตั้งโดย Admin Master
 };
 
 const SLA = {
@@ -832,15 +847,27 @@ const Store = {
       .onSnapshot(doc => {
         if (doc.exists) {
           const d = doc.data();
+          let needsMigration = false;
+          // ----- Migrate admins: string[] → object[] -----
+          let admins = d.admins || [];
+          admins = admins.map(a => {
+            if (typeof a === 'string') {
+              needsMigration = true;
+              return { name: a, username: null, password: null };
+            }
+            return {
+              name: a.name || '',
+              username: a.username || null,
+              password: a.password || null
+            };
+          });
           // ----- Migrate budders: string[] → object[] -----
           let budders = d.budders || [];
-          let needsMigration = false;
           budders = budders.map(b => {
             if (typeof b === 'string') {
               needsMigration = true;
               return { name: b, username: null, password: null, universities: [] };
             }
-            // Normalize object format
             return {
               name: b.name || '',
               username: b.username || null,
@@ -849,14 +876,13 @@ const Store = {
             };
           });
           State.masters = {
-            admins: d.admins || [],
+            admins: admins,
             budders: budders,
             universities: d.universities || [],
             counters: d.counters || {}
           };
-          // Save back migrated format silently
           if (needsMigration) {
-            console.log('Migrating budders to new format with credentials...');
+            console.log('Migrating masters to new format with credentials...');
             this.saveMasters();
           }
         } else {
@@ -1086,21 +1112,33 @@ function isWithinSLA(elapsed, target) { return elapsed != null && target != null
    AUTH
    ========================================================= */
 function tryLogin(user, pass) {
-  // Admin: shared credentials (4 admins ใช้ user/pass เดียวกัน เลือกชื่อหลัง login)
-  if (user === CREDENTIALS.admin.user && pass === CREDENTIALS.admin.pass) {
-    State.authed = true; State.role = 'admin';
+  // 1) Admin Master: shared (เจ้าของระบบ คนเดียว)
+  if (user === CREDENTIALS.adminMaster.user && pass === CREDENTIALS.adminMaster.pass) {
+    State.authed = true; State.role = 'admin_master';
+    State.profileName = 'Admin Master';
     State.view = 'admin'; State.subView = 'tickets';
     return { ok: true };
   }
-  // Budder: per-user credentials (lookup ใน master list)
   const uname = (user || '').toLowerCase().trim();
+  // 2) Regular Admin: per-user (Admin Master ตั้งให้)
+  const adminMatch = State.masters.admins.find(a =>
+    a && typeof a === 'object' && a.username && a.password
+    && a.username.toLowerCase() === uname && a.password === pass
+  );
+  if (adminMatch) {
+    State.authed = true; State.role = 'admin';
+    State.profileName = adminMatch.name;
+    State.view = 'admin'; State.subView = 'tickets';
+    return { ok: true };
+  }
+  // 3) Budder: per-user (Admin Master ตั้งให้)
   const budder = State.masters.budders.find(b =>
     b && typeof b === 'object' && b.username && b.password
     && b.username.toLowerCase() === uname && b.password === pass
   );
   if (budder) {
     State.authed = true; State.role = 'budder';
-    State.profileName = budder.name; // ระบบรู้ตัวจาก username — ไม่ต้องเลือกชื่อ
+    State.profileName = budder.name;
     State.view = 'budder'; State.subView = 'available';
     return { ok: true };
   }
@@ -1197,7 +1235,7 @@ function viewProfileSelect() {
   // (Budder login ด้วย username/password ส่วนตัวแล้ว — profileName set ตั้งแต่ tryLogin)
   // เก็บ logic ของ budder ไว้เผื่อ edge case
   const isAdmin = State.role === 'admin';
-  const list = isAdmin ? State.masters.admins : State.masters.budders.map(b => b.name).filter(Boolean);
+  const list = isAdmin ? State.masters.admins.map(a => a.name).filter(Boolean) : State.masters.budders.map(b => b.name).filter(Boolean);
   const label = isAdmin ? 'Admin' : 'Certified Budder';
   if (!list || list.length === 0) {
     return `
@@ -1242,17 +1280,31 @@ function viewProfileSelect() {
    APP SHELL
    ========================================================= */
 function viewAppShell(inner) {
-  const isAdmin = State.role === 'admin';
-  const tabs = isAdmin ? [
-    { key: 'tickets', label: 'ใบงานทั้งหมด' },
-    { key: 'create', label: '+ เปิดใบงาน' },
-    { key: 'masters', label: 'Master Data' },
-    { key: 'reports', label: 'รายงาน' }
-  ] : [
-    { key: 'available', label: 'งานที่รอรับ' },
-    { key: 'mine', label: 'งานของฉัน' },
-    { key: 'closed', label: 'งานที่ปิดแล้ว' }
-  ];
+  const isAdminMaster = State.role === 'admin_master';
+  const isAdminRegular = State.role === 'admin';
+  const isAdmin = isAdminMaster || isAdminRegular;
+  let tabs;
+  if (isAdminMaster) {
+    tabs = [
+      { key: 'tickets', label: 'ใบงานทั้งหมด' },
+      { key: 'create', label: '+ เปิดใบงาน' },
+      { key: 'masters', label: 'Master Data' },
+      { key: 'reports', label: 'รายงาน' }
+    ];
+  } else if (isAdminRegular) {
+    // Regular Admin: ไม่เห็น "รายงาน"
+    tabs = [
+      { key: 'tickets', label: 'ใบงานทั้งหมด' },
+      { key: 'create', label: '+ เปิดใบงาน' },
+      { key: 'masters', label: 'Master Data' }
+    ];
+  } else {
+    tabs = [
+      { key: 'available', label: 'งานที่รอรับ' },
+      { key: 'mine', label: 'งานของฉัน' },
+      { key: 'closed', label: 'งานที่ปิดแล้ว' }
+    ];
+  }
   const tabsHtml = tabs.map(t => {
     let count = '';
     if (t.key === 'available') {
@@ -1286,7 +1338,7 @@ function viewAppShell(inner) {
           <button class="user-pill" id="user-pill">
             <span>${escapeHtml(State.profileName || '')}</span>
             <span style="opacity:.7">·</span>
-            <span>${isAdmin ? 'Admin' : 'Budder'}</span>
+            <span>${isAdminMaster ? '👑 Master' : (isAdminRegular ? 'Admin' : 'Budder')}</span>
           </button>
         </div>
       </header>
@@ -1309,7 +1361,7 @@ function renderFilterToolbar() {
     `<option value="${escapeHtml(u.prefix)}" ${f.universityPrefix === u.prefix ? 'selected' : ''}>${escapeHtml(u.name)}</option>`
   ).join('');
   const adminOpts = State.masters.admins.map(a =>
-    `<option value="${escapeHtml(a)}" ${f.adminName === a ? 'selected' : ''}>${escapeHtml(a)}</option>`
+    `<option value="${escapeHtml(a.name)}" ${f.adminName === a.name ? 'selected' : ''}>${escapeHtml(a.name)}</option>`
   ).join('');
   const budderOpts = State.masters.budders.map(b =>
     `<option value="${escapeHtml(b.name)}" ${f.budderName === b.name ? 'selected' : ''}>${escapeHtml(b.name)}</option>`
@@ -1405,8 +1457,14 @@ function renderTicketsTable(tickets) {
 
 function viewAdminCreate(editingId = null) {
   const editing = editingId ? State.tickets.find(t => t.id === editingId) : null;
-  const adminOpts = State.masters.admins.map(a =>
-    `<option value="${escapeHtml(a)}" ${(editing?.adminName || State.profileName) === a ? 'selected' : ''}>${escapeHtml(a)}</option>`
+  // รวม "Admin Master" เป็น option พิเศษ (สำหรับใบงานที่ Admin Master เปิดเอง)
+  const adminNames = State.masters.admins.map(a => a.name).filter(Boolean);
+  if (State.role === 'admin_master' && !adminNames.includes('Admin Master')) {
+    adminNames.unshift('Admin Master');
+  }
+  const currentAdmin = editing?.adminName || State.profileName;
+  const adminOpts = adminNames.map(name =>
+    `<option value="${escapeHtml(name)}" ${currentAdmin === name ? 'selected' : ''}>${escapeHtml(name)}</option>`
   ).join('');
   const uniOpts = State.masters.universities.map(u =>
     `<option value="${escapeHtml(u.prefix)}" ${editing?.universityPrefix === u.prefix ? 'selected' : ''}>${escapeHtml(u.name)} (${escapeHtml(u.prefix)})</option>`
@@ -1513,22 +1571,38 @@ function viewAdminCreate(editingId = null) {
 }
 
 function viewAdminMasters() {
-  const sub = State.subSubView || 'admins';
+  const isMaster = State.role === 'admin_master';
+  // Regular Admin: เห็นแค่ universities, default = universities
+  // Admin Master: เห็นทุก subtab, default = admins
+  const defaultSub = isMaster ? 'admins' : 'universities';
+  let sub = State.subSubView || defaultSub;
+  // Guard: Regular Admin ห้ามเข้า admins/budders subtab
+  if (!isMaster && (sub === 'admins' || sub === 'budders')) sub = 'universities';
+
   let body = '';
   if (sub === 'admins') body = renderAdminEditor();
   else if (sub === 'budders') body = renderBudderEditor();
   else if (sub === 'universities') body = renderUniversityEditor();
+
+  const subtabsHtml = isMaster ? `
+    <button class="subtab ${sub === 'admins' ? 'active' : ''}" data-sub="admins">Admins (${State.masters.admins.length})</button>
+    <button class="subtab ${sub === 'budders' ? 'active' : ''}" data-sub="budders">Certified Budders (${State.masters.budders.length})</button>
+    <button class="subtab ${sub === 'universities' ? 'active' : ''}" data-sub="universities">มหาวิทยาลัย (${State.masters.universities.length})</button>
+  ` : `
+    <button class="subtab active" data-sub="universities">มหาวิทยาลัย (${State.masters.universities.length})</button>
+  `;
+
+  const actionsHtml = isMaster ? `
+    <div class="row">
+      <button class="btn btn-secondary btn-sm" onclick="exportBackup()">💾 Export Backup</button>
+      <button class="btn btn-secondary btn-sm" onclick="openImportDialog()">📥 Import</button>
+    </div>
+  ` : '';
+
   return `
     <div class="row-between mb-3">
-      <div class="subtabs">
-        <button class="subtab ${sub === 'admins' ? 'active' : ''}" data-sub="admins">Admins (${State.masters.admins.length})</button>
-        <button class="subtab ${sub === 'budders' ? 'active' : ''}" data-sub="budders">Certified Budders (${State.masters.budders.length})</button>
-        <button class="subtab ${sub === 'universities' ? 'active' : ''}" data-sub="universities">มหาวิทยาลัย (${State.masters.universities.length})</button>
-      </div>
-      <div class="row">
-        <button class="btn btn-secondary btn-sm" onclick="exportBackup()">💾 Export Backup</button>
-        <button class="btn btn-secondary btn-sm" onclick="openImportDialog()">📥 Import</button>
-      </div>
+      <div class="subtabs">${subtabsHtml}</div>
+      ${actionsHtml}
     </div>
     ${body}`;
 }
@@ -1568,121 +1642,195 @@ const AdminEditState = { editingIdx: -1 };
 
 function renderAdminEditor() {
   const admins = State.masters.admins;
-  const rows = admins.map((name, idx) => {
-    const ticketCount = State.tickets.filter(t => t.adminName === name).length;
-    const isMe = State.role === 'admin' && State.profileName === name;
+  const incomplete = admins.filter(a => !a.username || !a.password).length;
+  const rows = admins.map((a, idx) => {
+    const needsSetup = !a.username || !a.password;
+    const ticketCount = State.tickets.filter(t => t.adminName === a.name).length;
+    const isMe = State.role === 'admin' && State.profileName === a.name;
     return `
       <tr class="clickable" onclick="openAdminEditorModal(${idx})">
         <td>${idx + 1}</td>
         <td>
-          <strong>${escapeHtml(name)}</strong>
+          <strong>${escapeHtml(a.name || '—')}</strong>
           ${isMe ? '<span class="badge" style="background:var(--brand-soft);color:var(--brand);margin-left:6px;font-size:11px;">คุณ</span>' : ''}
         </td>
+        <td class="cell-mono text-mute">${escapeHtml(a.username || '—')}</td>
         <td class="cell-mono text-mute">${ticketCount} ใบ</td>
+        <td>${needsSetup ? '<span class="badge" style="background:#FEE2E2;color:#B91C1C;">⚠️ ตั้งค่าก่อนใช้</span>' : '<span class="badge status-closed"><span class="badge-dot"></span>พร้อมใช้</span>'}</td>
         <td style="text-align: right; white-space: nowrap;">
           <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openAdminEditorModal(${idx})">แก้ไข</button>
-          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); removeListItem('admins', ${idx})">ลบ</button>
         </td>
       </tr>`;
   }).join('');
   return `
     <div class="card">
-      <div class="card-header"><div class="card-title">รายชื่อ Admin</div></div>
+      <div class="card-header">
+        <div class="card-title">รายชื่อ Admin</div>
+        <button class="btn btn-primary btn-sm" onclick="openAdminEditorModal(-1)">+ เพิ่ม Admin</button>
+      </div>
       <div class="card-body">
-        <form class="row mb-3" onsubmit="event.preventDefault(); addListItem('admins');">
-          <input class="input" type="text" id="new-admins" placeholder="ชื่อ Admin ใหม่..." style="flex: 1;">
-          <button type="submit" class="btn btn-primary">+ เพิ่ม</button>
-        </form>
+        ${incomplete > 0 ? `
+          <div style="background:#FEF3C7;color:#92400E;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px;">
+            ⚠️ มี <strong>${incomplete}</strong> Admin ที่ยังไม่ได้ตั้ง username/password — คลิกเพื่อตั้งค่าก่อนใช้งาน
+          </div>
+        ` : ''}
         ${admins.length === 0 ? `
-          <div class="empty"><div class="empty-icon">👤</div><div class="empty-title">ยังไม่มีรายชื่อ Admin</div></div>
+          <div class="empty">
+            <div class="empty-icon">👤</div>
+            <div class="empty-title">ยังไม่มีรายชื่อ Admin</div>
+            <div class="empty-desc">กดปุ่ม "+ เพิ่ม Admin" เพื่อเริ่ม</div>
+          </div>
         ` : `
           <div class="table-scroll">
             <table class="table" style="min-width: auto;">
               <thead><tr>
                 <th style="width:50px;">#</th>
                 <th>ชื่อ</th>
-                <th>ใบงานที่เปิด</th>
+                <th>Username</th>
+                <th>ใบงาน</th>
+                <th>สถานะ</th>
                 <th></th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>`}
         <div class="text-mute text-tiny mt-3">
-          💡 Admin ทุกคนใช้ user/pass เดียวกัน (<code>admin</code> / <code>welovepropertybuddy</code>) แล้วเลือกชื่อตัวเองหลัง login
+          💡 Admin Master (เจ้าของ) ใช้ <code>adminmaster</code> / <code>weareowner</code> · Admin ทั่วไปแต่ละคนมี user/pass ส่วนตัว ตั้งโดย Admin Master
         </div>
       </div>
     </div>`;
 }
 
 function openAdminEditorModal(idx) {
-  const name = State.masters.admins[idx];
-  if (name == null) return;
+  const isNew = idx === -1;
+  const a = isNew ? { name: '', username: '', password: '' } : State.masters.admins[idx];
+  if (!a) return;
   AdminEditState.editingIdx = idx;
-  const ticketCount = State.tickets.filter(t => t.adminName === name).length;
-  const isMe = State.role === 'admin' && State.profileName === name;
+  const ticketCount = isNew ? 0 : State.tickets.filter(t => t.adminName === a.name).length;
+  const isMe = !isNew && State.role === 'admin' && State.profileName === a.name;
   showModal(`
     <div class="modal-header">
-      <div class="modal-title">แก้ไขชื่อ Admin</div>
+      <div class="modal-title">${isNew ? '+ เพิ่ม Admin' : 'แก้ไข — ' + escapeHtml(a.name || '(ไม่มีชื่อ)')}</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="field mb-3">
-        <label class="field-label">ชื่อ Admin <span class="req">*</span></label>
-        <input class="input" type="text" id="admin-edit-name" value="${escapeHtml(name)}" required>
+      <div class="form-grid mb-3">
+        <div class="field full">
+          <label class="field-label">ชื่อ-นามสกุล <span class="req">*</span></label>
+          <input class="input" type="text" id="ae-name" value="${escapeHtml(a.name || '')}" required>
+        </div>
+        <div class="field">
+          <label class="field-label">Username <span class="req">*</span></label>
+          <input class="input" type="text" id="ae-username" value="${escapeHtml(a.username || '')}" placeholder="เช่น somchai" required>
+          <div class="field-hint">a-z, 0-9, _ เท่านั้น (3-30 ตัว) · ห้ามซ้ำ · ห้ามใช้ "adminmaster"</div>
+        </div>
+        <div class="field">
+          <label class="field-label">Password <span class="req">*</span></label>
+          <div style="display:flex; gap:8px;">
+            <input class="input" type="password" id="ae-password" value="${escapeHtml(a.password || '')}" placeholder="อย่างน้อย 6 ตัว" required style="flex:1;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleAdminPwView()" id="ae-pw-toggle">👁 แสดง</button>
+          </div>
+        </div>
       </div>
-      <div style="background:var(--surface-2); padding:12px 14px; border-radius:8px; font-size:13px;">
-        <div class="text-mute text-tiny">สถิติปัจจุบัน:</div>
-        <div class="mt-1">📄 ใบงานที่ Admin คนนี้เปิด: <strong>${ticketCount}</strong> ใบ</div>
-        ${ticketCount > 0 ? '<div class="text-mute text-tiny mt-2">⚠️ ถ้าเปลี่ยนชื่อ ระบบจะอัปเดต <code>adminName</code> ในทุกใบงานให้เป็นชื่อใหม่</div>' : ''}
-        ${isMe ? '<div class="text-mute text-tiny mt-2">ℹ️ คุณกำลังแก้ชื่อตัวเอง — session ปัจจุบันจะอัปเดตอัตโนมัติ</div>' : ''}
-      </div>
+      ${!isNew ? `
+        <div style="background:var(--surface-2); padding:12px 14px; border-radius:8px; font-size:13px;">
+          <div class="text-mute text-tiny">สถิติปัจจุบัน:</div>
+          <div class="mt-1">📄 ใบงานที่ Admin คนนี้เปิด: <strong>${ticketCount}</strong> ใบ</div>
+          ${ticketCount > 0 ? '<div class="text-mute text-tiny mt-2">⚠️ ถ้าเปลี่ยนชื่อ ระบบจะอัปเดต adminName ในทุกใบงานให้เป็นชื่อใหม่</div>' : ''}
+          ${isMe ? '<div class="text-mute text-tiny mt-2">ℹ️ คุณกำลังแก้ตัวเอง — session ปัจจุบันจะอัปเดตอัตโนมัติ</div>' : ''}
+        </div>
+      ` : ''}
     </div>
     <div class="modal-footer">
+      ${!isNew ? `<button class="btn btn-danger" onclick="deleteAdmin(${idx})" style="margin-right:auto;">🗑 ลบ Admin</button>` : ''}
       <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
       <button class="btn btn-primary" onclick="saveAdminEditor()">บันทึก</button>
     </div>
   `);
 }
 
+function toggleAdminPwView() {
+  const input = $('#ae-password');
+  const btn = $('#ae-pw-toggle');
+  if (!input || !btn) return;
+  if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈 ซ่อน'; }
+  else { input.type = 'password'; btn.textContent = '👁 แสดง'; }
+}
+
 async function saveAdminEditor() {
   const idx = AdminEditState.editingIdx;
-  if (idx < 0) return;
-  const oldName = State.masters.admins[idx];
-  if (oldName == null) return;
-  const newName = $('#admin-edit-name').value.trim();
-  if (!newName) { toast('กรอกชื่อ Admin', 'error'); return; }
-  // Check duplicate (excluding self)
-  const dup = State.masters.admins.find((n, i) => i !== idx && n === newName);
-  if (dup) { toast(`มี Admin ชื่อ "${newName}" อยู่แล้ว`, 'error'); return; }
-  if (newName === oldName) { closeModal(); return; }
+  const isNew = idx === -1;
+  const name = $('#ae-name').value.trim();
+  const username = $('#ae-username').value.trim().toLowerCase();
+  const password = $('#ae-password').value;
 
-  const affected = State.tickets.filter(t => t.adminName === oldName);
-  if (affected.length > 0) {
-    toast(`กำลังอัปเดต ${affected.length} ใบงาน...`, 'info');
+  // Validate
+  if (!name) { toast('กรอกชื่อ', 'error'); return; }
+  if (!/^[a-z0-9_]{3,30}$/.test(username)) {
+    toast('Username ต้องเป็น a-z, 0-9, _ เท่านั้น (3-30 ตัว)', 'error'); return;
   }
+  if (username === 'adminmaster') {
+    toast('ห้ามใช้ username "adminmaster" — สงวนสำหรับ Admin Master', 'error'); return;
+  }
+  if (password.length < 6) { toast('Password ต้องอย่างน้อย 6 ตัว', 'error'); return; }
+  // Username uniqueness ใน admins
+  const dupAdmin = State.masters.admins.find((a, i) =>
+    i !== idx && a.username && a.username.toLowerCase() === username
+  );
+  if (dupAdmin) { toast(`Username "${username}" ถูกใช้แล้วโดย Admin: ${dupAdmin.name}`, 'error'); return; }
+  // Username uniqueness ใน budders
+  const dupBudder = State.masters.budders.find(b =>
+    b.username && b.username.toLowerCase() === username
+  );
+  if (dupBudder) { toast(`Username "${username}" ถูกใช้แล้วโดย Budder: ${dupBudder.name}`, 'error'); return; }
+
+  const oldAdmin = isNew ? null : State.masters.admins[idx];
+  const record = { name, username, password };
 
   try {
-    // 1. Update admin in masters
-    State.masters.admins[idx] = newName;
-    await Store.saveMasters();
-
-    // 2. Update all tickets with this adminName
-    for (const t of affected) {
-      await Store.saveTicket({ ...t, adminName: newName });
+    // Update masters
+    if (isNew) {
+      State.masters.admins.push(record);
+    } else {
+      // ถ้า rename → update ticket.adminName ใน tickets ที่เกี่ยวข้อง
+      if (oldAdmin.name && oldAdmin.name !== name) {
+        const owned = State.tickets.filter(t => t.adminName === oldAdmin.name);
+        if (owned.length > 0) toast(`กำลังอัปเดต ${owned.length} ใบงาน...`, 'info');
+        for (const t of owned) {
+          await Store.saveTicket({ ...t, adminName: name });
+        }
+        // ถ้าคนที่ rename = คนที่กำลัง login อยู่ → update profileName
+        if (State.role === 'admin' && State.profileName === oldAdmin.name) {
+          State.profileName = name;
+          try { localStorage.setItem(LS_KEY_PROFILE, name); } catch (e) {}
+        }
+      }
+      State.masters.admins[idx] = record;
     }
 
-    // 3. If renaming current logged-in admin, update session
-    if (State.role === 'admin' && State.profileName === oldName) {
-      State.profileName = newName;
-      try { localStorage.setItem(LS_KEY_PROFILE, newName); } catch (e) {}
+    const ok = await Store.saveMasters();
+    if (ok) {
+      closeModal();
+      toast(isNew ? `เพิ่ม ${record.name} เรียบร้อย` : `บันทึก ${record.name} เรียบร้อย`, 'success');
     }
-
-    closeModal();
-    toast(`✓ บันทึก ${newName} เรียบร้อย${affected.length > 0 ? ` · อัปเดต ${affected.length} ใบงาน` : ''}`, 'success');
   } catch (e) {
-    console.error('Admin rename failed:', e);
+    console.error('Admin save failed:', e);
     toast('เกิดข้อผิดพลาด: ' + e.message, 'error');
   }
+}
+
+async function deleteAdmin(idx) {
+  const a = State.masters.admins[idx];
+  if (!a) return;
+  const ticketCount = State.tickets.filter(t => t.adminName === a.name).length;
+  if (ticketCount > 0) {
+    if (!confirm(`${a.name} เคยเปิดใบงาน ${ticketCount} ใบ — ข้อมูลใบงานจะคงไว้ แต่ Admin คนนี้จะ login ไม่ได้อีก · ยืนยัน?`)) return;
+  } else {
+    if (!confirm(`ลบ Admin "${a.name}" ?`)) return;
+  }
+  State.masters.admins.splice(idx, 1);
+  const ok = await Store.saveMasters();
+  if (ok) { closeModal(); toast(`ลบ ${a.name} แล้ว`, 'success'); }
 }
 
 // ===== Budder Editor (form-based with credentials + university assignment) =====
@@ -2248,7 +2396,7 @@ function viewAdminReports() {
 
   // Admin / Budder stats
   const adminStats = {};
-  State.masters.admins.forEach(a => { adminStats[a] = { opened: 0, openMsSum: 0, openMsCount: 0 }; });
+  State.masters.admins.forEach(a => { adminStats[a.name] = { opened: 0, openMsSum: 0, openMsCount: 0 }; });
   inRange.forEach(t => {
     if (!t.adminName) return;
     if (!adminStats[t.adminName]) adminStats[t.adminName] = { opened: 0, openMsSum: 0, openMsCount: 0 };
@@ -2528,9 +2676,9 @@ function renderReportsCharts() {
   // 2. Admin Avg Open Time (NEW — replaces SLA bars)
   const adminAvg = {};
   State.masters.admins.forEach(a => {
-    const times = inRange.filter(t => t.adminName === a && t.customerLastContactAt && t.createdAt)
+    const times = inRange.filter(t => t.adminName === a.name && t.customerLastContactAt && t.createdAt)
       .map(t => new Date(t.createdAt) - new Date(t.customerLastContactAt));
-    if (times.length > 0) adminAvg[a] = times.reduce((s, v) => s + v, 0) / times.length;
+    if (times.length > 0) adminAvg[a.name] = times.reduce((s, v) => s + v, 0) / times.length;
   });
   renderAvgTimeChart('chart-admin-time', adminAvg, SLA.openWithin, '1 ชม.');
 
@@ -2849,7 +2997,7 @@ function viewImageFullscreen(dataUrl) {
 
 function renderTicketDetailModal(t) {
   const m = ticketMetrics(t);
-  const isAdmin = State.role === 'admin';
+  const isAdmin = State.role === 'admin' || State.role === 'admin_master';
   const isMyJob = isAssignedTo(t, State.profileName);
 
   let footer = '';
@@ -2872,7 +3020,7 @@ function renderTicketDetailModal(t) {
     if (isInAvailablePool(t)) {
       actions.push(`<button class="btn btn-success" onclick="acceptTicket('${t.id}'); closeModal();">รับงาน</button>`);
     } else if (isMyJob && t.status === 'accepted') {
-      actions.push(`<button class="btn btn-ghost" onclick="releaseTicket('${t.id}'); closeModal();">คืนงาน</button>`);
+      actions.push(`<button class="btn btn-ghost" onclick="closeModal(); releaseTicket('${t.id}');">คืนงาน</button>`);
       actions.push(`<button class="btn btn-success" onclick="closeModal(); openCloseDialog('${t.id}');">ปิดงาน</button>`);
     } else if (isMyJob && t.status === 'on_hold') {
       // Budder ดูได้ แต่ทำอะไรไม่ได้ Admin ต้อง Resume ก่อน
@@ -2941,6 +3089,28 @@ function renderTicketDetailModal(t) {
           </div>
         </div>` : ''}
 
+      ${t.status === 'closed' && t.closeOutcome ? `
+        <div class="detail-section">
+          <div class="detail-section-title">ผลการปิดงาน</div>
+          <div class="outcome-badge" style="background: ${CLOSE_OUTCOMES[t.closeOutcome]?.color || '#94A3B8'}22; color: ${CLOSE_OUTCOMES[t.closeOutcome]?.color || '#475569'};">
+            ${CLOSE_OUTCOMES[t.closeOutcome]?.emoji || ''} ${escapeHtml(CLOSE_OUTCOMES[t.closeOutcome]?.label || t.closeOutcome)}
+          </div>
+          ${t.closeNotes ? `
+            <div class="mt-2" style="background:var(--surface-2); padding:10px 14px; border-radius:8px;">
+              <div class="text-mute text-tiny mb-1">รายละเอียดเพิ่มเติม:</div>
+              <div style="font-size:13px; white-space:pre-wrap;">${escapeHtml(t.closeNotes)}</div>
+            </div>` : ''}
+        </div>` : ''}
+
+      ${t.releaseReason ? `
+        <div class="detail-section">
+          <div class="detail-section-title">📋 ประวัติคืนงานล่าสุด</div>
+          <div style="background:#FEF3C7; padding:10px 14px; border-radius:8px;">
+            <div class="text-mute text-tiny mb-1">${t.releasedBy ? 'คืนโดย ' + escapeHtml(t.releasedBy) : ''} ${t.releasedAt ? '· ' + fmtDateTime(t.releasedAt) : ''}</div>
+            <div style="font-size:13px; white-space:pre-wrap;">${escapeHtml(t.releaseReason)}</div>
+          </div>
+        </div>` : ''}
+
       <div class="detail-section">
         <div class="detail-section-title">รูปแคปแชท</div>
         <div class="image-preview-grid" id="detail-images">
@@ -2959,23 +3129,38 @@ function goEditTicket(id) {
 }
 
 // ----- Close Dialog -----
+// Close outcome labels (ใช้ทั้งใน dialog และการแสดงผล)
+const CLOSE_OUTCOMES = {
+  no_reply:         { emoji: '😴', label: 'ส่งข้อมูลแล้ว แต่น้องไม่ตอบ',           color: '#94A3B8' },
+  self_decide:      { emoji: '🤔', label: 'ส่งข้อมูลแล้ว น้องขอไปตัดสินใจเอง',     color: '#F59E0B' },
+  visited_no_close: { emoji: '👀', label: 'พาไปชมห้องแล้ว แต่ปิดการขายไม่ได้',     color: '#EF4444' },
+  visited_closed:   { emoji: '✅', label: 'พาไปชมห้องแล้ว และปิดการขายได้',        color: '#10B981' }
+};
+
 function openCloseDialog(id) {
   const t = State.tickets.find(x => x.id === id);
   if (!t) return;
   const existing = t.dormsSent || [];
+  const outcomeOptions = Object.entries(CLOSE_OUTCOMES).map(([key, v]) => `
+    <label class="close-outcome-option" data-outcome="${key}">
+      <input type="radio" name="close-outcome" value="${key}">
+      <div class="close-outcome-content">
+        <div class="close-outcome-emoji">${v.emoji}</div>
+        <div class="close-outcome-label">${escapeHtml(v.label)}</div>
+      </div>
+    </label>
+  `).join('');
   showModal(`
     <div class="modal-header">
       <div>
         <div class="modal-title">ปิดงาน — ${escapeHtml(t.id)}</div>
-        <div class="text-mute text-small mt-1">กรอกรายชื่อหอที่ส่งให้ Buddy ก่อนปิดงาน</div>
+        <div class="text-mute text-small mt-1">กรอกข้อมูลก่อนปิดงาน</div>
       </div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="field mb-3">
-        <label class="field-label">รายชื่อหอที่ส่งให้ Buddy <span class="req">*</span></label>
-        <div class="field-hint">เพิ่มอย่างน้อย 1 หอ — จำนวนหอจะใช้วัด performance</div>
-      </div>
+      <div class="detail-section-title">หอที่ส่งให้ Buddy <span class="req">*</span></div>
+      <div class="field-hint mb-2">เพิ่มอย่างน้อย 1 หอ</div>
       <div class="dorm-list" id="dorms-list">
         ${(existing.length > 0 ? existing : [{ name: '', location: '' }]).map((d, i) => `
           <div class="dorm-row" data-idx="${i}">
@@ -2984,12 +3169,40 @@ function openCloseDialog(id) {
             <button class="remove-btn" onclick="removeDormRow(${i})">✕</button>
           </div>`).join('')}
       </div>
-      <button class="btn btn-secondary btn-sm mt-2" onclick="addDormRow()">+ เพิ่มหอ</button>
+      <button class="btn btn-secondary btn-sm mt-2 mb-3" onclick="addDormRow()">+ เพิ่มหอ</button>
+
+      <div class="detail-section-title mt-3">ผลการปิดงาน <span class="req">*</span></div>
+      <div class="close-outcome-grid mb-3">${outcomeOptions}</div>
+
+      <div class="field">
+        <label class="field-label">รายละเอียดเพิ่มเติม <span id="notes-req" class="req" style="display:none">*</span></label>
+        <textarea class="textarea" id="close-notes" placeholder="เช่น เหตุผลที่ปิดการขายไม่ได้ / สิ่งที่น้องชอบหรือไม่ชอบ / feedback อื่นๆ" rows="3"></textarea>
+        <div class="field-hint" id="notes-hint">บังคับใส่สำหรับ 3 outcome แรก (ยกเว้น "ปิดการขายได้")</div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
       <button class="btn btn-success" onclick="confirmCloseTicket('${id}')">✓ ปิดงาน</button>
     </div>`);
+
+  // Wire outcome selection — show/hide required indicator on notes
+  setTimeout(() => {
+    $$('.close-outcome-option input[name="close-outcome"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        $$('.close-outcome-option').forEach(el => el.classList.remove('selected'));
+        radio.closest('.close-outcome-option').classList.add('selected');
+        const req = $('#notes-req');
+        const hint = $('#notes-hint');
+        if (radio.value === 'visited_closed') {
+          if (req) req.style.display = 'none';
+          if (hint) hint.textContent = 'Optional — ใส่ feedback ของน้องได้ถ้าต้องการ';
+        } else {
+          if (req) req.style.display = '';
+          if (hint) hint.textContent = 'จำเป็นต้องระบุ — ช่วยให้ Admin วิเคราะห์ได้';
+        }
+      });
+    });
+  }, 30);
 }
 
 function addDormRow() {
@@ -3020,7 +3233,18 @@ async function confirmCloseTicket(id) {
     location: r.querySelector('.dorm-loc').value.trim()
   })).filter(d => d.name);
   if (dorms.length === 0) { toast('กรุณากรอกชื่อหออย่างน้อย 1 หอ', 'error'); return; }
-  const updated = { ...t, dormsSent: dorms, status: 'closed', closedAt: nowISO() };
+  // Read outcome
+  const outcomeRadio = $$('.close-outcome-option input[name="close-outcome"]').find(r => r.checked);
+  if (!outcomeRadio) { toast('กรุณาเลือก "ผลการปิดงาน"', 'error'); return; }
+  const closeOutcome = outcomeRadio.value;
+  // Read notes
+  const closeNotes = $('#close-notes').value.trim();
+  // Notes บังคับสำหรับ 3 outcome แรก (ยกเว้น visited_closed)
+  if (closeOutcome !== 'visited_closed' && !closeNotes) {
+    toast('กรุณากรอกรายละเอียดเพิ่มเติม (จำเป็นสำหรับ outcome นี้)', 'error');
+    return;
+  }
+  const updated = { ...t, dormsSent: dorms, status: 'closed', closedAt: nowISO(), closeOutcome, closeNotes: closeNotes || null };
   const ok = await Store.saveTicket(updated);
   if (ok) {
     closeModal();
@@ -3049,13 +3273,49 @@ async function acceptTicket(id) {
   if (ok) toast(`รับงาน ${id} เรียบร้อย`, 'success');
 }
 
-async function releaseTicket(id) {
+function releaseTicket(id) {
   const t = State.tickets.find(x => x.id === id);
   if (!t) return;
-  if (!confirm(`คืนงาน ${id} ให้คนอื่นรับ?`)) return;
-  const updated = { ...t, status: 'reassigned', acceptedAt: null, budderName: null };
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">คืนงาน — ${escapeHtml(t.id)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="mb-3 text-small">งานนี้จะถูกคืนกลับเข้า pool ให้ Budder คนอื่นรับ</p>
+      <div class="field">
+        <label class="field-label">เหตุผลในการคืนงาน <span class="req">*</span></label>
+        <textarea class="textarea" id="release-reason" placeholder="เช่น ไม่มีเวลา / มีงานเร่งด่วน / น้องไม่ตอบนาน / มหาลัยไม่ตรงกับที่ดูแล" rows="3" required></textarea>
+        <div class="field-hint">Admin จะเห็นเหตุผลนี้ในรายละเอียดใบงาน</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-danger" onclick="confirmReleaseTicket('${id}')">✓ ยืนยันการคืนงาน</button>
+    </div>
+  `);
+}
+
+async function confirmReleaseTicket(id) {
+  const t = State.tickets.find(x => x.id === id);
+  if (!t) return;
+  const reason = $('#release-reason').value.trim();
+  if (!reason) { toast('กรุณากรอกเหตุผล', 'error'); return; }
+  const updated = {
+    ...t,
+    status: 'reassigned',
+    acceptedAt: null,
+    budderName: null,
+    holdStartedAt: null,
+    releaseReason: reason,
+    releasedAt: nowISO(),
+    releasedBy: State.profileName || 'unknown'
+  };
   const ok = await Store.saveTicket(updated);
-  if (ok) toast(`คืนงาน ${id} แล้ว`, 'success');
+  if (ok) {
+    closeModal();
+    toast(`คืนงาน ${id} แล้ว`, 'success');
+  }
 }
 
 async function setTicketStatus(id, newStatus) {
@@ -3148,11 +3408,13 @@ async function removeUniversity(idx) {
 }
 
 async function firstTimeAdminSetup() {
-  const name = prompt('กรอกชื่อ Admin คนแรก (คุณ):');
+  // หลังเพิ่ม Admin Master, ฟังก์ชันนี้ไม่ค่อยใช้แล้ว (Admin Master เพิ่ม admin ผ่าน editor modal)
+  // เก็บไว้เผื่อ edge case
+  const name = prompt('กรอกชื่อ Admin คนแรก:');
   if (!name || !name.trim()) return;
-  State.masters.admins.push(name.trim());
-  State.profileName = name.trim();
+  State.masters.admins.push({ name: name.trim(), username: null, password: null });
   await Store.saveMasters();
+  toast('เพิ่มแล้ว — กรุณาตั้ง username/password ผ่านปุ่มแก้ไข', 'success');
   render();
 }
 
@@ -3225,7 +3487,12 @@ async function render() {
     }
 
     let inner = '';
-    if (State.role === 'admin') {
+    const isAnyAdmin = State.role === 'admin' || State.role === 'admin_master';
+    if (isAnyAdmin) {
+      // Guard: regular admin ห้ามเข้า reports
+      if (State.subView === 'reports' && State.role !== 'admin_master') {
+        State.subView = 'tickets';
+      }
       if (State.subView === 'tickets') inner = viewAdminTickets();
       else if (State.subView === 'create') inner = viewAdminCreate();
       else if (State.subView === 'masters') inner = viewAdminMasters();
@@ -3239,8 +3506,8 @@ async function render() {
     attachShellEvents();
     attachInnerEvents();
 
-    // Render charts after DOM is set
-    if (State.role === 'admin' && State.subView === 'reports') {
+    // Render charts after DOM is set (เฉพาะ admin_master)
+    if (State.role === 'admin_master' && State.subView === 'reports') {
       setTimeout(() => {
         try { renderReportsCharts(); }
         catch (e) {
@@ -3272,7 +3539,7 @@ function renderInner(html) {
     ChartRegistry.destroyAll();
     main.innerHTML = html;
     attachInnerEvents();
-    if (State.role === 'admin' && State.subView === 'reports') setTimeout(renderReportsCharts, 50);
+    if (State.role === 'admin_master' && State.subView === 'reports') setTimeout(renderReportsCharts, 50);
   }
 }
 
@@ -3329,7 +3596,7 @@ function attachLoginEvents() {
     const u = $('#login-user').value.trim();
     const p = $('#login-pass').value;
     if (tryLogin(u, p).ok) render();
-    else $('#login-err').innerHTML = `<div class="login-error">Username หรือ Password ไม่ถูกต้อง<br><span style="font-size:11px;opacity:.8;">(Budder ต้องให้ Admin ตั้ง credentials ก่อนจึงจะ login ได้)</span></div>`;
+    else $('#login-err').innerHTML = `<div class="login-error">Username หรือ Password ไม่ถูกต้อง<br><span style="font-size:11px;opacity:.8;">Admin Master: <code>adminmaster</code> / Admin & Budder: ตั้งโดย Admin Master</span></div>`;
   });
 }
 
@@ -3357,8 +3624,28 @@ function attachShellEvents() {
 }
 
 function showUserMenu() {
+  if (State.role === 'admin_master') {
+    // Admin Master (เจ้าของ) — shared login, ใช้ชื่อคงที่ "Admin Master"
+    showModal(`
+      <div class="modal-header">
+        <div class="modal-title">👑 Admin Master</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-row"><div class="key">บทบาท</div><div class="val">เจ้าของระบบ (สิทธิ์เต็ม)</div></div>
+        <div class="detail-row"><div class="key">Username</div><div class="val cell-mono">adminmaster</div></div>
+        <div class="mt-3 text-mute text-tiny">
+          Admin Master เห็นทุก tab + ตั้ง credentials ของ Admin/Budder + Export/Import Backup
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="logout(); closeModal();">ออกจากระบบ</button>
+        <button class="btn btn-secondary" onclick="closeModal()">ปิด</button>
+      </div>`);
+    return;
+  }
   if (State.role === 'budder') {
-    // Budder login ด้วย credentials ส่วนตัว — switch profile ไม่ได้ มีแค่ logout
+    // Budder login ด้วย credentials ส่วนตัว
     const b = getCurrentBudder();
     const unis = b ? (b.universities || []) : [];
     showModal(`
@@ -3370,7 +3657,7 @@ function showUserMenu() {
         <div class="detail-row"><div class="key">ชื่อ</div><div class="val">${escapeHtml(State.profileName)}</div></div>
         <div class="detail-row"><div class="key">Username</div><div class="val cell-mono">${escapeHtml(b?.username || '—')}</div></div>
         <div class="detail-row"><div class="key">มหาลัยที่ดูแล</div><div class="val">${unis.length ? escapeHtml(unis.join(', ')) : '—'}</div></div>
-        <div class="mt-3 text-mute text-tiny">⚠️ ติดต่อ Admin หากต้องการเปลี่ยนข้อมูล credentials หรือมหาลัย</div>
+        <div class="mt-3 text-mute text-tiny">⚠️ ติดต่อ Admin Master หากต้องการเปลี่ยนข้อมูล credentials หรือมหาลัย</div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-danger" onclick="logout(); closeModal();">ออกจากระบบ</button>
@@ -3378,23 +3665,22 @@ function showUserMenu() {
       </div>`);
     return;
   }
-  // Admin: ใช้ shared login → switch profile ได้
-  const opts = State.masters.admins.map(n => `<option value="${escapeHtml(n)}" ${State.profileName === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  // Regular Admin: ใช้ credentials ส่วนตัว → ไม่ต้อง switch profile
+  const a = State.masters.admins.find(x => x && x.name === State.profileName);
   showModal(`
     <div class="modal-header">
       <div class="modal-title">โปรไฟล์</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="field mb-3">
-        <label class="field-label">เปลี่ยนชื่อ Admin</label>
-        <select class="select" id="switch-name">${opts}</select>
-      </div>
+      <div class="detail-row"><div class="key">ชื่อ</div><div class="val">${escapeHtml(State.profileName)}</div></div>
+      <div class="detail-row"><div class="key">Username</div><div class="val cell-mono">${escapeHtml(a?.username || '—')}</div></div>
+      <div class="detail-row"><div class="key">บทบาท</div><div class="val">Admin (เปิดใบงาน + จัดการมหาลัย)</div></div>
+      <div class="mt-3 text-mute text-tiny">⚠️ ติดต่อ Admin Master หากต้องการเปลี่ยน credentials</div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger" onclick="logout(); closeModal();">ออกจากระบบ</button>
-      <button class="btn btn-secondary" onclick="closeModal()">ยกเลิก</button>
-      <button class="btn btn-primary" onclick="switchProfile()">บันทึก</button>
+      <button class="btn btn-secondary" onclick="closeModal()">ปิด</button>
     </div>`);
 }
 
@@ -3683,10 +3969,21 @@ async function performImport(mode) {
       for (const t of data.tickets) await Store.saveTicket(t);
       for (const [id, imgs] of Object.entries(data.images || {})) await Store.saveImages(id, imgs);
     } else {
-      // Merge
-      const existingAdmins = new Set(State.masters.admins);
-      (data.masters.admins || []).forEach(a => existingAdmins.add(a));
-      State.masters.admins = Array.from(existingAdmins);
+      // Merge admins: dedupe by username (or name if no username)
+      const existingAdminMap = new Map();
+      State.masters.admins.forEach(a => {
+        if (typeof a === 'object' && a) existingAdminMap.set((a.username || a.name || '').toLowerCase(), a);
+      });
+      (data.masters.admins || []).forEach(a => {
+        if (typeof a === 'string') {
+          const key = a.toLowerCase();
+          if (!existingAdminMap.has(key)) existingAdminMap.set(key, { name: a, username: null, password: null });
+        } else if (a && typeof a === 'object') {
+          const key = (a.username || a.name || '').toLowerCase();
+          if (!existingAdminMap.has(key)) existingAdminMap.set(key, a);
+        }
+      });
+      State.masters.admins = Array.from(existingAdminMap.values());
 
       // Merge budders: dedupe by username (or name if no username)
       const existingByKey = new Map();
@@ -3770,7 +4067,8 @@ Object.assign(window, {
   exportBackup, openImportDialog, showImportPreview, performImport,
   openBudderEditorModal, saveBudderEditor, commitBudderSave, commitPendingBudderSave, cancelPendingBudderSave, deleteBudder, toggleBudderPwView,
   openUniversityEditorModal, saveUniversityEditor, confirmUniversityChange, commitUniversityChange,
-  openAdminEditorModal, saveAdminEditor
+  openAdminEditorModal, saveAdminEditor, deleteAdmin, toggleAdminPwView,
+  confirmReleaseTicket
 });
 
 init();
